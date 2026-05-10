@@ -1,0 +1,12 @@
+{
+  "$schema": "https://code.claude.com/schemas/plugin.json",
+  "name": "chronicle",
+  "version": "0.1.0",
+  "description": "Skills for working with Chronicle experiments via the methodic-client SDK.",
+  "homepage": "https://docs.methodiclabs.ai",
+  "author": {
+    "name": "Methodic Labs",
+    "email": "support@methodiclabs.ai"
+  },
+  "license": "Apache-2.0"
+}
