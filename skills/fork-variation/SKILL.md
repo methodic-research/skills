@@ -20,8 +20,15 @@ token. The original committed variation stays SHA-pinned and untouched.
 ## Inputs
 
 - **`experiment_id`** — see prep-variation; same resolution rules.
-- **`source_variation`** — the variation index to fork from. Required.
+- **`source_variation`** — the variation index OR plaintext name to fork
+  from. Required. If the user says "fork width-doubled," resolve that
+  name → index via `chronicle.variations.find_by_name(experiment_id, …)`
+  before passing to the SDK calls below.
 - **`description`** (optional) — one-liner for the new variation card.
+- **`name`** (optional) — plaintext handle for the new fork
+  (`baseline-with-larger-batch`). Unique per experiment when set. Prefer
+  this over the integer index when referring to the fork in subsequent
+  chat. Prompt with a derived suggestion if missing.
 
 ## Workflow
 
@@ -57,14 +64,17 @@ subprocess.run(["git", "-C", str(clone_dir), "checkout", "-b", branch, source.gi
 subprocess.run(["git", "-C", str(clone_dir), "push", "origin", branch], check=True)
 
 # 4. Register as a new open variation
+source_handle = source.name or f"v{source_variation}"
 var = chronicle.variations.create(
     experiment_id,
     config_yaml=source.config_yaml,
     git_ref=branch,
-    description=description or f"forked from v{source_variation}",
+    description=description or f"forked from {source_handle}",
+    name=name,  # optional plaintext handle for the fork; pass None to skip
 )
 
-print(f"Forked v{source_variation} → v{var.variation} on branch {branch}")
+fork_handle = var.name or f"v{var.variation}"
+print(f"Forked {source_handle} → {fork_handle} on branch {branch}")
 print(f"Local clone: {clone_dir}")
 ```
 

@@ -31,6 +31,11 @@ edit, and a corresponding open variation row in Chronicle.
   the latest committed variation if omitted.
 - **`description`** (optional) — a one-liner the user wants on the variation
   card. Prompt if missing.
+- **`name`** (optional) — a short plaintext handle (`baseline`,
+  `width-doubled`) for the new variation. Unique per experiment when set.
+  Prefer this over the integer index when later referring to the variation
+  in chat. Prompt the user with a suggested name derived from `description`
+  if they don't supply one; accept their reply (including a blank/skip).
 
 ## Workflow
 
@@ -75,9 +80,14 @@ var = chronicle.variations.create(
     config_yaml=parent_config,
     git_ref=branch,
     description=description,
+    name=name,  # optional plaintext handle; pass None to skip
 )
 
-print(f"Variation {var.variation} ready at {clone_dir}")
+# Refer to the variation by its name when set — it's how the user
+# will think about it. Fall back to the integer when the user
+# declined to name it.
+handle = var.name or f"v{var.variation}"
+print(f"Variation {handle} ready at {clone_dir}")
 print(f"Branch: {branch}")
 print(f"Edit, commit, push, then `chronicle.variations.commit(...)` when ready.")
 ```

@@ -45,7 +45,11 @@ for v in detail.variations:
     if v.committed_at: badges.append("committed")
     if v.retracted_at: badges.append("retracted")
     if v.latest_status: badges.append(f"last run: {v.latest_status}")
-    print(f"    v{v.variation} — {v.run_count} runs — {', '.join(badges) or 'open'}")
+    # Prefer the plaintext name; fall back to the integer index when
+    # the user hasn't named the variation. See `Variation naming` in
+    # the repo README for the convention.
+    handle = v.name or f"v{v.variation}"
+    print(f"    {handle} — {v.run_count} runs — {', '.join(badges) or 'open'}")
 
 # Surface upstream retractions — these invalidate this experiment's premises
 if include_retracted_ancestors:
