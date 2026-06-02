@@ -2,7 +2,7 @@
 
 Claude Code plugin: skills for working with the [Chronicle](https://docs.methodiclabs.ai) experiment platform.
 
-This repo is a Claude Code marketplace containing one plugin (`chronicle`). Backend lives in the `geekbeast/methodic` monorepo (private); skills live here so they can be public-facing without exposing the rest.
+This repo is a Claude Code marketplace containing one plugin (`chronicle`). Backend lives in the `methodic-research/methodic` monorepo (private); skills live here so they can be public-facing without exposing the rest.
 
 ## What's inside
 
@@ -26,7 +26,7 @@ Every skill is a thin orchestration layer over the [`methodic-client`](https://p
 
 ```bash
 # Add the marketplace
-/plugin marketplace add geekbeast/methodic-skills
+/plugin marketplace add methodic-research/methodic-skills
 
 # Install the chronicle plugin
 /plugin install chronicle@methodic-skills
