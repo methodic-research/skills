@@ -200,7 +200,7 @@ yourself.
 
 ## Requires
 
-- `methodic-client` (Python) — already installed in the tartarus-d
+- `methodic-research` (Python) — already installed in the tartarus-d
   image alongside the other agent dependencies. Import is
   `from methodic import Chronicle`.
 - `CHRONICLE_API_KEY` and `CHRONICLE_SERVER_URL` are set in the

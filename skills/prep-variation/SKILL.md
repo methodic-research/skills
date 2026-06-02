@@ -114,6 +114,6 @@ Tell the user:
 
 ## Requires
 
-- `pip install methodic-client` (≥ first git-integration release)
+- `pip install methodic-research` (≥ first git-integration release)
 - `git` on `$PATH`
 - `CHRONICLE_API_KEY` exported (or `methodic auth login` already done)

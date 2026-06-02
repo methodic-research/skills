@@ -9,7 +9,7 @@
   "plugins": [
     {
       "name": "chronicle",
-      "description": "Skills for working with Chronicle experiments — prep variations, fork experiments, mint git tokens, query status.",
+      "description": "Skills for working with Chronicle experiments — research surveys, hypothesis-driven experiment + variation generation, history/lineage search, prep/fork variations, status.",
       "category": "research",
       "tags": ["chronicle", "experiments", "research", "ml-ops"],
       "source": "."
