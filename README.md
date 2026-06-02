@@ -15,6 +15,7 @@ This repo is a Claude Code marketplace containing one plugin (`chronicle`). Back
 | `chronicle-research-survey` | "survey the literature on X", "what's been tried", "research \<topic\>" | Surveys prior art across two corpora — Chronicle's internal experiment history + research docs (`search.history`, lineage) and external arxiv/papers via the configured literature MCP — then synthesizes gaps and optionally saves a `research_report`. |
 | `chronicle-propose-experiment` | "propose an experiment", "create an experiment for this hypothesis" | Turns a hypothesis into a new Chronicle experiment: creates it, attaches the full `hypothesis_report`, links a research prompt, and optionally commits. |
 | `chronicle-author-variation` | "make a variation that doubles the width", "author a variation" | Like prep-variation, but the agent *authors* the new config from your requested change (not a verbatim copy): clone + branch, edit `config.yaml` in-context, push, register the variation. |
+| `chronicle-write-report` | "write up the findings", "document what we learned", "summarize this variation's results" | Attaches a Markdown + LaTeX-math research write-up (rendered inline with MathJax) to an experiment or variation, with figures uploaded as image assets and embedded by reference. Always includes an explicit "What didn't work" section. |
 | `chronicle-history-explorer` | "what experiments exist about X", "show the lineage", "explore history" | Read-only exploration of experiment history — semantic search (`search.history`), status-filtered browsing, the lineage DAG, and upstream retractions. |
 | `triage-error-queue` | "triage the error queue", "process incoming bugs" | Drains the Chronicle error-report triage queue locally. Claims one report, gathers context, decides match/new/noise, submits a structured verdict. Pair with `/loop`. Cost win: LLM call runs against your Claude Max, not chronicle's metered API key. See [`automated-error-reporting.md`](../runes/chronicle/designs/automated-error-reporting.md) §5.5. |
 | `fix-error-queue` | "fix the next error", "work on a queued bug" | Drains the fix queue locally. Claims one open root_cause, reads the triage agent's writeup, fixes on a branch in your methodic checkout, opens a PR (no autonomous merging). Pair with `/loop`. See [`automated-error-reporting.md`](../runes/chronicle/designs/automated-error-reporting.md) §8.2. |
@@ -57,7 +58,7 @@ That's it — the skills auto-trigger by intent ("survey the literature on …",
 
 ### 2. Wire the Chronicle MCP tools (recommended)
 
-The skills run on the SDK alone, but Chronicle also hosts an **MCP server** (`/v1/mcp/messages`, served by `chronicle-server`) exposing native `chronicle.*` tools — internal search, experiment create/read/commit, report-write, research prompts, session search. Point Claude Code at it with a project-scoped `.mcp.json` at your repo root:
+The skills run on the SDK alone, but Chronicle also hosts an **MCP server** (`/v1/mcp/messages`, served by `chronicle-server`) exposing native `chronicle.*` tools — internal search, experiment create/read/commit, report-write, image upload, research prompts, session search. Point Claude Code at it with a project-scoped `.mcp.json` at your repo root:
 
 ```json
 {
