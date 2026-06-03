@@ -58,11 +58,6 @@ from methodic import Chronicle
 
 chronicle = Chronicle.from_env()  # CHRONICLE_SERVER_URL + CHRONICLE_API_KEY
 
-# The experiment is created under the key's default org. If the user asked
-# to create it in a different org they belong to, set the active scope first:
-#   chronicle.active_org = "<org-principal-id>"
-# (See the README "Active scope (org override)" convention.)
-
 # 1. Create the experiment. hypothesis_summary is the short field;
 #    config_yaml seeds variation 0.
 exp = chronicle.experiments.create(
