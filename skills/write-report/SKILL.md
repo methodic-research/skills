@@ -10,7 +10,7 @@ description: |
   math ($…$) that the Methodic UI renders inline with MathJax, plus figures
   uploaded as image assets and embedded by reference. It always includes an
   explicit "What didn't work" section — negative results are part of the
-  record. This is the shared write-up path for both the ideation flow and
+  record. This is the shared write-up path for both the synthesis flow and
   the variation flow. For creating the experiment + its hypothesis use
   chronicle-propose-experiment; for authoring a variation's config use
   chronicle-author-variation.

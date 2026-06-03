@@ -1,7 +1,7 @@
 ---
-name: ideation-event-handler
+name: synthesis-event-handler
 description: |
-  Use this skill when you (the ideation agent running inside a Methodic
+  Use this skill when you (the synthesis agent running inside a Methodic
   experiment's container) just received an event on stdin describing a
   variation outcome or a distillation report — typically marker lines
   with `"kind": "variation_completed"` or `"kind": "distillation_completed"`
@@ -13,17 +13,17 @@ description: |
   the skill doesn't recognize — fall back to your normal reasoning.
 ---
 
-# Ideation event handler
+# Synthesis event handler
 
 This is the consumption half of M11 closed-loop continuous exploration
 (see [`runes/chronicle/designs/agent-flows.md`][af] §17.8 +
-[`edison/shared_plans/m11-ideation-events-push.md`][push]). Chronicle
+[`edison/shared_plans/m11-synthesis-events-push.md`][push]). Chronicle
 pushes one event per variation outcome and one (coalesced) event per
 distillation-report finalization onto your stdin via the tartarus-d
 relay client; this skill says what to do with each.
 
 [af]: ../../../runes/chronicle/designs/agent-flows.md
-[push]: ../../../edison/shared_plans/m11-ideation-events-push.md
+[push]: ../../../edison/shared_plans/m11-synthesis-events-push.md
 
 ## Wire shape (what your stdin actually sees)
 
@@ -193,8 +193,8 @@ proposing:
 
 ## Concurrency
 
-Only one ideation agent runs per experiment at a time — tartarus-d
-routes events to `AgentJob::Ideation` (variation=None), which is
+Only one synthesis agent runs per experiment at a time — tartarus-d
+routes events to `AgentJob::Synthesis` (variation=None), which is
 1-to-1 per experiment. You don't need to worry about racing
 yourself.
 
@@ -206,18 +206,18 @@ yourself.
 - `CHRONICLE_API_KEY` and `CHRONICLE_SERVER_URL` are set in the
   container env at agent spawn — `Chronicle.from_env()` picks them
   up. Don't read raw API keys from prompts.
-- The ideation agent's stdin is fed by tartarus-d's relay client.
+- The synthesis agent's stdin is fed by tartarus-d's relay client.
   No skill-side stdin reading needed; the harness deposits each
   event as a user-message turn.
 
 ## Pair with the prompt update
 
-The ideation system prompt
+The synthesis system prompt
 (`tartarus/prompts/multi-agent-loop.system.md` or its successor)
 should reference this skill in a one-paragraph behavior contract:
 
 > When you receive a `variation_completed` or `distillation_completed`
-> event on stdin, use the `ideation-event-handler` skill. The skill
+> event on stdin, use the `synthesis-event-handler` skill. The skill
 > describes how to parse the event, fetch report bodies, and decide
 > whether to propose follow-up variations. Default to waiting — only
 > propose when you have a concrete tweak you'd defend to the
