@@ -27,6 +27,26 @@ Every skill is a thin orchestration layer over the [`methodic-research`](https:/
 
 ## Getting started
 
+> **Quick install (TL;DR).** The skills require the `methodic` SDK — they
+> orchestrate it and never make raw HTTP calls — so installing the plugin alone
+> is **not** enough. Two steps:
+>
+> ```bash
+> # 1. In your shell: install the SDK and point it at your Chronicle + key.
+> pip install methodic-research && \
+>   export CHRONICLE_SERVER_URL="https://api.methodiclabs.ai" && \
+>   export CHRONICLE_API_KEY="sk_user_..."
+> ```
+> ```text
+> # 2. Inside Claude Code: add the marketplace and install the plugin.
+> /plugin marketplace add methodic-research/methodic-skills
+> /plugin install chronicle@methodic-skills
+> ```
+>
+> Step 1 is the easy-to-miss one: without `methodic-research` importable in the
+> same Python environment Claude Code shells out to, every skill ImportErrors on
+> `from methodic import Chronicle` and does nothing. Details below.
+
 ### Prerequisites
 
 1. **Claude Code** — the plugin host.

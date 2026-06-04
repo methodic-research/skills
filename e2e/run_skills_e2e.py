@@ -220,7 +220,12 @@ def _agent_turn(prompt: str, label: str, api_key: str, log_dir: pathlib.Path, ti
         "--plugin-dir", str(REPO_ROOT),
         "--mcp-config", str(mcp_config),
         "--permission-mode", "auto",
-        "--output-format", "json",
+        # stream-json (+ --verbose, required in print mode) writes the transcript
+        # incrementally: a timeout/kill still leaves a full NDJSON log to diagnose
+        # from, unlike --output-format json which buffers a single object emitted
+        # only at the very end (→ an empty stdout file when the turn is killed).
+        "--output-format", "stream-json",
+        "--verbose",
         # Sonnet, not Opus — a CI test doesn't need Opus, and it's ~5x cheaper
         # per turn. Still satisfies --permission-mode auto's "Sonnet 4.6+" floor.
         "--model", "claude-sonnet-4-6",
@@ -238,23 +243,31 @@ def _agent_turn(prompt: str, label: str, api_key: str, log_dir: pathlib.Path, ti
     (log_dir / f"agent.{label}.stdout").write_text(out or "")
     (log_dir / f"agent.{label}.stderr").write_text(err or "")
     if timed_out:
-        raise Fail(f"agent turn '{label}' timed out after {timeout}s; stdout tail:\n{(out or '')[-2000:]}")
-    parsed = None
-    try:
-        parsed = json.loads(out)
-    except json.JSONDecodeError:
-        pass
-    # `claude --output-format json` reports agent-side failures (API errors,
-    # "Credit balance is too low", etc.) as is_error in the JSON, not via the
-    # exit code — surface the message directly rather than a blank stderr.
-    if parsed and parsed.get("is_error"):
-        raise Fail(f"agent turn '{label}' errored ({parsed.get('subtype')}): {str(parsed.get('result', ''))[-600:]}")
+        raise Fail(f"agent turn '{label}' timed out after {timeout}s; transcript tail:\n{(out or '')[-2000:]}")
+    # stream-json emits one JSON object per line; the final `type:"result"` event
+    # carries the result text + is_error. Agent-side failures (API errors,
+    # "Credit balance is too low", etc.) surface there, not via the exit code.
+    result_text, is_error, subtype = None, False, None
+    for line in (out or "").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            ev = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if ev.get("type") == "result":
+            result_text = ev.get("result", "")
+            is_error = bool(ev.get("is_error"))
+            subtype = ev.get("subtype")
+    if is_error:
+        raise Fail(f"agent turn '{label}' errored ({subtype}): {str(result_text or '')[-600:]}")
     if proc.returncode != 0:
         raise Fail(
             f"agent turn '{label}' exited {proc.returncode}; result/stderr tail:\n"
             f"{(out or '')[-800:]}\n{(err or '')[-800:]}"
         )
-    return parsed.get("result", out) if parsed else out
+    return result_text if result_text is not None else (out or "")
 
 
 def create_experiment_and_variations(api_key: str, slug: str, log_dir: pathlib.Path) -> str:
@@ -403,12 +416,19 @@ def cleanup(jwt: str, exp_id: str) -> None:
 
 # --- The worker: train the triggered runs ON the runner ---------------------
 
-def start_worker(api_key: str) -> str | None:
+def start_worker(api_key: str, scope_experiment: str) -> str | None:
     """Run the public methodic worker image (`ENTRYPOINT menlo-park-d`) as a
     persistent worker registered to ci, so the triggered variation runs train
     here on the runner's CPU — no ci provisioning, no GCP WIF. The worker logs
     to W&B with WANDB_API_KEY (same account the integration uses), so the
     server can later pull the metrics.
+
+    Scoped to `scope_experiment` via CHRONICLE_SCOPE_EXPERIMENT so it ONLY
+    drains this run's experiment. The ci account is shared across runs, so an
+    unscoped worker claims the oldest pending run for the account — stale
+    orphans from earlier/cancelled runs — and trains the wrong config (the
+    source of spurious failures like training `KeyError: 'name'`). Honored by
+    worker image >= 0.2.0; older images ignore the unknown env var.
 
     RISK (the thing the first CI run validates): the worker installs each job's
     *code_artifact* and trains it, so the skill-created experiment's repo must
@@ -421,6 +441,7 @@ def start_worker(api_key: str) -> str | None:
                 "docker", "run", "-d",
                 "-e", f"CHRONICLE_API_KEY={api_key}",
                 "-e", f"CHRONICLE_SERVER_URL={CI_URL}",
+                "-e", f"CHRONICLE_SCOPE_EXPERIMENT={scope_experiment}",
                 "-e", f"WANDB_API_KEY={os.environ['WANDB_API_KEY']}",
                 "-e", "RUST_LOG=info",  # so worker.log is non-empty for diagnosis
                 # CPU-only torch — the runner has no GPU, so skip the multi-GB
@@ -473,13 +494,18 @@ def main() -> int:
     ensure_wandb_integration(jwt, scope_id, wandb_key)
     api_key = mint_api_key(jwt)
     print("  minted sk_user_* key.")
-    worker_cid = start_worker(api_key)
 
     exp_id = None
+    worker_cid = None
     try:
+        # Create the experiment + variations FIRST, then start the worker
+        # SCOPED to it — so the worker only drains this run's runs and ignores
+        # stale orphans the shared ci account accumulated from earlier runs.
+        # The triggered runs simply wait in the queue until the worker is up.
         exp_id = create_experiment_and_variations(api_key, slug, log_dir)
         print(f"=== created experiment {exp_id} ===")
         assert_experiment(jwt, exp_id)
+        worker_cid = start_worker(api_key, exp_id)
         wait_for_runs(jwt, exp_id)        # driver waits; not the agent
         distill(api_key, exp_id, log_dir)  # distill turn, runs now complete
         report = wait_for_distillation(jwt, exp_id)

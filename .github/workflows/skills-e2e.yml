@@ -41,6 +41,11 @@ jobs:
           df -h /
       - name: Install driver deps
         run: pip install requests
+      - name: Install the methodic SDK (what the skills import — matches a real user)
+        # The skills are written against the Python SDK (`from methodic import
+        # Chronicle`). A real user runs `pip install methodic-research`; the e2e
+        # must too, or the agent ImportErrors and can't execute any skill.
+        run: pip install methodic-research
       - name: Install Claude Code CLI
         run: npm install -g @anthropic-ai/claude-code
       - name: Run skills E2E against ci
