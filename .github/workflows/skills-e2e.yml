@@ -36,6 +36,16 @@ jobs:
         run: pip install requests
       - name: Install Claude Code CLI
         run: npm install -g @anthropic-ai/claude-code
+      - name: Free disk space
+        # The worker image installs torch + the full CUDA wheel stack
+        # (nvidia-cuda-*, cudnn, cublas, triton — multi-GB) per job; the stock
+        # runner (~14 GB free) runs out. Reclaim ~20-25 GB from preinstalled
+        # toolchains we don't use.
+        run: |
+          sudo rm -rf /usr/local/lib/android /opt/ghc /usr/local/.ghcup \
+                      /usr/share/dotnet /opt/hostedtoolcache/CodeQL /usr/share/swift
+          sudo docker image prune -af || true
+          df -h /
       - name: Run skills E2E against ci
         # Driver SKIPs (exit 0) if any secret is absent (e.g. fork PRs).
         env:
