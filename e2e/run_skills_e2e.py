@@ -148,12 +148,51 @@ better." Use the experiment slug "{slug}". Attach the hypothesis as a \
 hypothesis_report and create + link a research prompt.
 
 2. Use the author-variation skill THREE times to create and COMMIT three \
-variations of the baseline that differ ONLY by model.hidden_dim. Name them \
-"hidden_dim_32", "hidden_dim_128", "hidden_dim_256" with a one-line hypothesis \
-each. When you create each variation, pass \
+variations. There is no git repo provisioned in this environment, so use the \
+skill's in-context fallback: take the COMPLETE base config below VERBATIM and \
+change ONLY model.hidden_dim. Pass the full resulting YAML as the variation's \
+config_yaml — do NOT drop, rename, or summarize any field. model.name, \
+dataset.name, packages, the objective losses/metrics, and the trainer block are \
+ALL required by the worker; a config missing model.name crashes training with \
+KeyError. Name the variations "hidden_dim_32", "hidden_dim_128", \
+"hidden_dim_256" (hidden_dim = 32, 128, 256 respectively) with a one-line \
+hypothesis each. When you create each variation, pass \
 launch_config={{"runner_type": "menlo_park_persistent"}} (the variations.create \
 launch_config argument) — without it the committed run never dispatches to a \
 worker. Then trigger a run for each committed variation.
+
+BASE CONFIG — copy verbatim into each variation's config_yaml, changing ONLY
+model.hidden_dim:
+
+packages:
+  - "ripple_physics"
+
+model:
+  name: ripple_model
+  input_dim: 2
+  hidden_dim: 32
+  num_layers: 2
+  output_dim: 1
+
+dataset:
+  name: ripple_dataset_config
+  grid_size: 16
+
+objective:
+  losses:
+    - name: mse_loss
+  metrics:
+    - name: mae_metric
+
+trainer:
+  learning_rate: 0.01
+  max_steps: 20
+  per_device_train_batch_size: 64
+  logging_steps: 5
+  log_level: info
+  save_steps: 100
+  seed: 42
+  use_cpu: true
 
 As your final line, print exactly: EXPERIMENT_ID=<the uuid>"""
 
