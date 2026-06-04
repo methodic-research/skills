@@ -119,7 +119,7 @@ def ensure_wandb_integration(jwt: str, scope_id: str, wandb_key: str) -> None:
         json={
             "scope_id": scope_id,
             "integration_type": "wandb",
-            "name": f"{SLUG_PREFIX}-wandb",
+            "display_name": f"{SLUG_PREFIX}-wandb",
             "key": wandb_key,
         },
         timeout=60,
