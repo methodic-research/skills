@@ -1,0 +1,51 @@
+name: skills-e2e
+
+# Per the design in runes/chronicle/designs/third-party-agent-flow.md:
+# - lint runs on every push (cheap, no secrets);
+# - the full E2E runs on PRs into main, driving the skills against the deployed
+#   ci instance with a headless Claude Code agent + a worker on the runner.
+on:
+  push:
+  pull_request:
+    branches: [main]
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Static skill lint (frontmatter + no stale API surface)
+        run: python3 e2e/lint_skills.py
+
+  e2e:
+    # Only the full flow needs secrets + compute; runs on PRs into main.
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest  # swap for a larger runner label if training is slow
+    timeout-minutes: 40
+    needs: lint
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install driver deps
+        run: pip install requests
+      - name: Install Claude Code CLI
+        run: npm install -g @anthropic-ai/claude-code
+      - name: Run skills E2E against ci
+        # Driver SKIPs (exit 0) if any secret is absent (e.g. fork PRs).
+        env:
+          CHRONICLE_CI_AUTH_ACCOUNT: ${{ secrets.CHRONICLE_CI_AUTH_ACCOUNT }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          WANDB_API_KEY: ${{ secrets.WANDB_API_KEY }}
+        run: python3 e2e/run_skills_e2e.py
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: skills-e2e-logs
+          path: e2e/logs/
+          if-no-files-found: ignore
