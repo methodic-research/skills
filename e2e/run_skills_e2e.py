@@ -133,9 +133,14 @@ def ensure_wandb_integration(jwt: str, scope_id: str, wandb_key: str) -> None:
 
 # --- Phase 1-4: drive the agent through the skills --------------------------
 
-IDEATION_PROMPT = """\
+# Two bounded turns, not one long-running one. The CREATE turn creates +
+# implements + triggers (and STOPS — it must not wait for training); the driver
+# polls runs to completion; then the DISTILL turn writes the report. Baking the
+# training wait into the agent turn is what timed the first run out.
+CREATE_PROMPT = """\
 You are helping a researcher with the Methodic platform via the chronicle MCP \
-tools and the methodic skills. Do exactly this, end to end:
+tools and the methodic skills. Do exactly this, then STOP — do NOT wait for \
+training and do NOT write any report:
 
 1. Use the propose-experiment skill to create ONE experiment for the hypothesis: \
 "A 3-layer MLP fits the damped-ripple function; wider hidden layers fit it \
@@ -147,64 +152,70 @@ variations of the baseline that differ ONLY by model.hidden_dim. Name them \
 "hidden_dim_32", "hidden_dim_128", "hidden_dim_256" with a one-line hypothesis \
 each. Trigger a run for each committed variation.
 
-3. After the three runs have completed, use the write-report skill to write an \
-experiment-level takeaways_report. Before writing it, PULL the W&B metrics for \
-the runs via the chronicle wandb tools and include the actual final metric \
-values (e.g. the loss/mae) for each variation in the report body.
+As your final line, print exactly: EXPERIMENT_ID=<the uuid>
+"""
 
-When fully done, print on its own final line exactly: EXPERIMENT_ID=<the uuid>
+DISTILL_PROMPT = """\
+The three runs for Methodic experiment {exp_id} have completed. Use the \
+write-report skill to write an experiment-level takeaways_report. Before writing \
+it, PULL the W&B metrics for the runs via the chronicle wandb tools and include \
+the actual final metric values (e.g. loss / mae) for each variation in the \
+report body. When done, print exactly: DONE
 """
 
 
-def run_agent(api_key: str, slug: str, log_dir: pathlib.Path) -> str:
-    """Run headless Claude Code with the skills plugin + chronicle MCP. Returns
-    the experiment_id parsed from the agent's EXPERIMENT_ID=<uuid> marker."""
+def _agent_turn(prompt: str, label: str, api_key: str, log_dir: pathlib.Path, timeout: int) -> str:
+    """Run ONE headless Claude turn (skills plugin + chronicle MCP). Captures
+    stdout/stderr to the log dir **even on timeout**, and returns the transcript
+    `result` text. `--permission-mode auto` runs unattended (Opus 4.8 server-side
+    safety classifier) so the skills' Bash/MCP calls don't block on a prompt —
+    `acceptEdits` only auto-accepts edits, which is what hung the first run."""
     mcp_config = log_dir / "mcp.json"
-    mcp_config.write_text(
-        json.dumps(
-            {
-                "mcpServers": {
-                    "chronicle": {
-                        "type": "http",
-                        "url": f"{CI_URL}{MCP_PATH}",
-                        "headers": {"Authorization": f"Bearer {api_key}"},
-                    }
-                }
-            }
-        )
-    )
-    # The skills shell out to the SDK / git, so the agent needs Bash + the
-    # chronicle MCP tools + Skill, without prompting. `--bare` keeps the run
-    # deterministic (no ambient ~/.claude discovery); we add plugin + MCP back
-    # explicitly. ASSUMPTION (validate in CI): these flags + permission mode are
-    # sufficient for the skills to run unattended.
+    mcp_config.write_text(json.dumps({"mcpServers": {"chronicle": {
+        "type": "http", "url": f"{CI_URL}{MCP_PATH}",
+        "headers": {"Authorization": f"Bearer {api_key}"}}}}))
     cmd = [
-        "claude", "-p", IDEATION_PROMPT.format(slug=slug),
-        "--bare",
+        "claude", "-p", prompt, "--bare",
         "--plugin-dir", str(REPO_ROOT),
         "--mcp-config", str(mcp_config),
-        "--permission-mode", "acceptEdits",
-        "--allowedTools", "Bash,Read,Edit,Write,Skill,mcp__chronicle",
+        "--permission-mode", "auto",
         "--output-format", "json",
         "--model", "claude-opus-4-8",
     ]
     env = {**os.environ, "CHRONICLE_SERVER_URL": CI_URL, "CHRONICLE_API_KEY": api_key}
-    print(f"  running agent (slug={slug}) …")
-    proc = subprocess.run(cmd, env=env, capture_output=True, text=True, timeout=1800)
-    (log_dir / "agent.stdout.json").write_text(proc.stdout)
-    (log_dir / "agent.stderr.txt").write_text(proc.stderr)
-    if proc.returncode != 0:
-        raise Fail(f"agent run exited {proc.returncode}; stderr tail:\n{proc.stderr[-2000:]}")
-    # The transcript text is in the JSON `result`; the marker is in there.
-    text = proc.stdout
+    print(f"  agent turn '{label}' (timeout {timeout}s) …")
+    proc = subprocess.Popen(cmd, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    timed_out = False
     try:
-        text = json.loads(proc.stdout).get("result", proc.stdout)
+        out, err = proc.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        out, err = proc.communicate()
+        timed_out = True
+    (log_dir / f"agent.{label}.stdout").write_text(out or "")
+    (log_dir / f"agent.{label}.stderr").write_text(err or "")
+    if timed_out:
+        raise Fail(f"agent turn '{label}' timed out after {timeout}s; stdout tail:\n{(out or '')[-2000:]}")
+    if proc.returncode != 0:
+        raise Fail(f"agent turn '{label}' exited {proc.returncode}; stderr tail:\n{(err or '')[-2000:]}")
+    try:
+        return json.loads(out).get("result", out)
     except json.JSONDecodeError:
-        pass
+        return out
+
+
+def create_experiment_and_variations(api_key: str, slug: str, log_dir: pathlib.Path) -> str:
+    """Create turn → returns the experiment_id from the EXPERIMENT_ID=<uuid> marker."""
+    text = _agent_turn(CREATE_PROMPT.format(slug=slug), "create", api_key, log_dir, timeout=900)
     for line in reversed(text.splitlines()):
         if line.strip().startswith("EXPERIMENT_ID="):
             return line.strip().split("=", 1)[1].strip()
-    raise Fail(f"agent did not emit EXPERIMENT_ID marker; result tail:\n{text[-2000:]}")
+    raise Fail(f"create turn did not emit EXPERIMENT_ID; result tail:\n{text[-2000:]}")
+
+
+def distill(api_key: str, exp_id: str, log_dir: pathlib.Path) -> None:
+    """Distill turn → write-report pulling W&B, after the runs have completed."""
+    _agent_turn(DISTILL_PROMPT.format(exp_id=exp_id), "distill", api_key, log_dir, timeout=900)
 
 
 # --- Assertions over ci REST ------------------------------------------------
@@ -241,6 +252,28 @@ def _has_asset_type(jwt: str, exp_id: str, asset_type: str) -> bool:
         if r.ok and any(a.get("asset_type") == asset_type for a in (r.json() if isinstance(r.json(), list) else [])):
             return True
     return False
+
+
+def wait_for_runs(jwt: str, exp_id: str) -> None:
+    """Driver-side wait: poll the variations until each has a *succeeded* run
+    (the runner-worker trains them). Fail fast on a terminal failure. This is
+    the wait that must NOT live inside the agent turn."""
+    deadline = time.time() + RUN_WAIT_SECS
+    failed = ("failed_crash", "failed_abandoned", "failed_lost")
+    last = "no status"
+    while time.time() < deadline:
+        r = _get(f"/experiments/{exp_id}/variations", jwt)
+        if r.ok:
+            rows = r.json() if isinstance(r.json(), list) else r.json().get("variations", [])
+            statuses = [v.get("latest_status") for v in rows]
+            if rows and all(s == "succeeded" for s in statuses):
+                print(f"  all {len(rows)} runs succeeded.")
+                return
+            if any(s in failed for s in statuses):
+                raise Fail(f"a run failed terminally: {statuses}")
+            last = f"statuses: {statuses}"
+        time.sleep(20)
+    raise Fail(f"runs did not all succeed within {RUN_WAIT_SECS}s; last {last}")
 
 
 def wait_for_distillation(jwt: str, exp_id: str) -> dict:
@@ -371,9 +404,11 @@ def main() -> int:
 
     exp_id = None
     try:
-        exp_id = run_agent(api_key, slug, log_dir)
-        print(f"=== agent done; experiment {exp_id} ===")
+        exp_id = create_experiment_and_variations(api_key, slug, log_dir)
+        print(f"=== created experiment {exp_id} ===")
         assert_experiment(jwt, exp_id)
+        wait_for_runs(jwt, exp_id)        # driver waits; not the agent
+        distill(api_key, exp_id, log_dir)  # distill turn, runs now complete
         report = wait_for_distillation(jwt, exp_id)
         assert_report_pulled_wandb(report)
         assert_searchable(jwt, exp_id)

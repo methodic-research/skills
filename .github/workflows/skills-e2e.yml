@@ -24,7 +24,8 @@ jobs:
     # Only the full flow needs secrets + compute; runs on PRs into main.
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest  # swap for a larger runner label if training is slow
-    timeout-minutes: 40
+    # create turn + driver run-wait + distill turn, each bounded separately.
+    timeout-minutes: 60
     needs: lint
     steps:
       - uses: actions/checkout@v4
