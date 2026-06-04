@@ -23,7 +23,7 @@ jobs:
   e2e:
     # Only the full flow needs secrets + compute; runs on PRs into main.
     if: github.event_name == 'pull_request'
-    runs-on: ubuntu-m  # larger runner — disk + CPU headroom for training on the runner
+    runs-on: ubuntu-latest
     # create turn + driver run-wait + distill turn, each bounded separately.
     timeout-minutes: 60
     needs: lint
@@ -32,6 +32,13 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      - name: Free disk space
+        # CPU-only torch already skips the multi-GB CUDA stack, but reclaim the
+        # preinstalled SDKs we don't use (~20GB) so the worker's pip install has
+        # ample headroom on the standard runner. Cheap (rm only, no apt purge).
+        run: |
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android /opt/hostedtoolcache/CodeQL /usr/local/.ghcup
+          df -h /
       - name: Install driver deps
         run: pip install requests
       - name: Install Claude Code CLI
