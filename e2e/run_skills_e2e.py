@@ -196,12 +196,22 @@ def _agent_turn(prompt: str, label: str, api_key: str, log_dir: pathlib.Path, ti
     (log_dir / f"agent.{label}.stderr").write_text(err or "")
     if timed_out:
         raise Fail(f"agent turn '{label}' timed out after {timeout}s; stdout tail:\n{(out or '')[-2000:]}")
-    if proc.returncode != 0:
-        raise Fail(f"agent turn '{label}' exited {proc.returncode}; stderr tail:\n{(err or '')[-2000:]}")
+    parsed = None
     try:
-        return json.loads(out).get("result", out)
+        parsed = json.loads(out)
     except json.JSONDecodeError:
-        return out
+        pass
+    # `claude --output-format json` reports agent-side failures (API errors,
+    # "Credit balance is too low", etc.) as is_error in the JSON, not via the
+    # exit code — surface the message directly rather than a blank stderr.
+    if parsed and parsed.get("is_error"):
+        raise Fail(f"agent turn '{label}' errored ({parsed.get('subtype')}): {str(parsed.get('result', ''))[-600:]}")
+    if proc.returncode != 0:
+        raise Fail(
+            f"agent turn '{label}' exited {proc.returncode}; result/stderr tail:\n"
+            f"{(out or '')[-800:]}\n{(err or '')[-800:]}"
+        )
+    return parsed.get("result", out) if parsed else out
 
 
 def create_experiment_and_variations(api_key: str, slug: str, log_dir: pathlib.Path) -> str:
