@@ -150,10 +150,12 @@ hypothesis_report and create + link a research prompt.
 2. Use the author-variation skill THREE times to create and COMMIT three \
 variations of the baseline that differ ONLY by model.hidden_dim. Name them \
 "hidden_dim_32", "hidden_dim_128", "hidden_dim_256" with a one-line hypothesis \
-each. Trigger a run for each committed variation.
+each. When you create each variation, pass \
+launch_config={{"runner_type": "menlo_park_persistent"}} (the variations.create \
+launch_config argument) — without it the committed run never dispatches to a \
+worker. Then trigger a run for each committed variation.
 
-As your final line, print exactly: EXPERIMENT_ID=<the uuid>
-"""
+As your final line, print exactly: EXPERIMENT_ID=<the uuid>"""
 
 DISTILL_PROMPT = """\
 The three runs for Methodic experiment {exp_id} have completed. Use the \
