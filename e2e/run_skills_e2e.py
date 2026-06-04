@@ -180,7 +180,9 @@ def _agent_turn(prompt: str, label: str, api_key: str, log_dir: pathlib.Path, ti
         "--mcp-config", str(mcp_config),
         "--permission-mode", "auto",
         "--output-format", "json",
-        "--model", "claude-opus-4-8",
+        # Sonnet, not Opus — a CI test doesn't need Opus, and it's ~5x cheaper
+        # per turn. Still satisfies --permission-mode auto's "Sonnet 4.6+" floor.
+        "--model", "claude-sonnet-4-6",
     ]
     env = {**os.environ, "CHRONICLE_SERVER_URL": CI_URL, "CHRONICLE_API_KEY": api_key}
     print(f"  agent turn '{label}' (timeout {timeout}s) …")
