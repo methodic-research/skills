@@ -384,6 +384,11 @@ def start_worker(api_key: str) -> str | None:
                 "-e", f"CHRONICLE_SERVER_URL={CI_URL}",
                 "-e", f"WANDB_API_KEY={os.environ['WANDB_API_KEY']}",
                 "-e", "RUST_LOG=info",  # so worker.log is non-empty for diagnosis
+                # CPU-only torch — the runner has no GPU, so skip the multi-GB
+                # nvidia-cuda-* wheel stack. torch resolves CPU-build from the
+                # pytorch CPU index; everything else falls back to PyPI.
+                "-e", "PIP_INDEX_URL=https://download.pytorch.org/whl/cpu",
+                "-e", "PIP_EXTRA_INDEX_URL=https://pypi.org/simple",
                 "methodiclabs/methodic:latest",
             ],
             capture_output=True, text=True, timeout=300, check=True,
