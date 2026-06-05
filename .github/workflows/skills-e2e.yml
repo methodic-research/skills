@@ -3,7 +3,8 @@ name: skills-e2e
 # Per the design in runes/chronicle/designs/third-party-agent-flow.md:
 # - lint runs on every push (cheap, no secrets);
 # - the full E2E runs on PRs into main, driving the skills against the deployed
-#   ci instance with a headless Claude Code agent + a worker on the runner.
+#   ci instance with a headless Claude Code agent that runs its OWN tiny CPU
+#   training (no Menlo Park worker — the agent owns the training).
 on:
   push:
   pull_request:
@@ -32,20 +33,13 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Free disk space
-        # CPU-only torch already skips the multi-GB CUDA stack, but reclaim the
-        # preinstalled SDKs we don't use (~20GB) so the worker's pip install has
-        # ample headroom on the standard runner. Cheap (rm only, no apt purge).
-        run: |
-          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android /opt/hostedtoolcache/CodeQL /usr/local/.ghcup
-          df -h /
-      - name: Install driver deps
-        run: pip install requests
-      - name: Install the methodic SDK (what the skills import — matches a real user)
-        # The skills are written against the Python SDK (`from methodic import
-        # Chronicle`). A real user runs `pip install methodic-research`; the e2e
-        # must too, or the agent ImportErrors and can't execute any skill.
-        run: pip install methodic-research
+      - name: Install driver + SDK + the agent's training deps
+        # requests: the driver's REST assertions. methodic-research: the SDK the
+        # skills import (`from methodic import Chronicle`) — a real user installs
+        # it, so the e2e must too or every skill ImportErrors. wandb + numpy: the
+        # agent writes + runs its OWN tiny CPU training and logs loss to W&B, so
+        # both must be importable in the env the agent shells `python` into.
+        run: pip install requests methodic-research wandb numpy
       - name: Install Claude Code CLI
         run: npm install -g @anthropic-ai/claude-code
       - name: Run skills E2E against ci

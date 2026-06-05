@@ -1,16 +1,20 @@
 #!/usr/bin/env python3
 """End-to-end test of the methodic skills against the deployed **ci** instance.
 
-Drives the third-party (BYO-agent) flow described in
+Drives the third-party (BYO-agent) flow in
 `runes/chronicle/designs/third-party-agent-flow.md`: a headless Claude Code
 session, loaded with the methodic-skills plugin + the chronicle MCP server,
-carries a short ideation prompt through propose-experiment → 3 author-variations
-→ (runs train on the runner's worker) → write-report (distillation, pulling
-W&B). The driver authenticates, provisions the W&B integration, runs the agent,
-and asserts the artifacts over ci's REST API, then cleans up.
+carries a short ideation prompt through propose-experiment → author-variation →
+**runs its OWN tiny CPU training, logging loss curves to W&B and marking the run
+via the SDK** (chronicle-run-variation) → write-report (agent-side distillation,
+pulling W&B directly with its own key). There is **no Menlo Park worker** — the
+agent owns the training; Chronicle records the runs. The driver authenticates,
+provisions the W&B integration, runs the agent, and asserts the artifacts over
+ci's REST API, then cleans up.
 
 It talks to ci over plain REST (`requests`) for its own bookkeeping +
-assertions; the *agent* uses the SDK + MCP via the skills. No local stack.
+assertions; the *agent* uses the SDK + MCP via the skills. No local stack, no
+worker, no docker, no GCP WIF.
 
 Secrets (env): CHRONICLE_CI_AUTH_ACCOUNT (JSON), ANTHROPIC_API_KEY, WANDB_API_KEY.
 Missing any → SKIP (exit 0), so keyless/fork CI stays green.
@@ -40,8 +44,15 @@ MCP_PATH = "/v1/mcp/messages"  # chronicle-server's MCP endpoint
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent  # the skills plugin dir
 RUN_ID = uuid.uuid4().hex[:8]
 SLUG_PREFIX = "skills-e2e"  # greppable for an orphan reaper
-RUN_WAIT_SECS = int(os.environ.get("E2E_RUN_WAIT_SECS", "900"))  # train + complete
+RUN_WAIT_SECS = int(os.environ.get("E2E_RUN_WAIT_SECS", "900"))  # agent runs train + marks runs
 SEARCH_WAIT_SECS = int(os.environ.get("E2E_SEARCH_WAIT_SECS", "180"))  # index propagation
+
+# The two variations the agent commits + runs. The driver scopes its run-wait to
+# these names so the test does NOT depend on the agent's exact variation count —
+# extra variations (the agent has over-produced when asked for N) just don't get
+# a run and aren't waited on.
+NAMED_VARIATIONS = ["hidden_dim_8", "hidden_dim_32"]
+EXPECTED_RUNS = len(NAMED_VARIATIONS)
 
 
 class Fail(Exception):
@@ -107,15 +118,28 @@ def caller_sub(jwt: str) -> str:
     raise Fail(f"no personal scope in /me/scopes: {scopes}")
 
 
-# --- Phase 0b: ensure the W&B integration so the server can pull -------------
+# --- Phase 0b: ensure the W&B integration -----------------------------------
 
 def ensure_wandb_integration(jwt: str, scope_id: str, wandb_key: str) -> None:
-    """Idempotent POST /v1/integrations (integration_type=wandb). The server
-    validates the key against W&B's GraphQL `viewer`. The runner-worker logs
-    with the *same* key (env), so the (exp,var,run)->W&B-run mapping resolves."""
+    """Provision EXACTLY ONE active wandb integration on the scope.
+
+    The agent's training *logs* to W&B with this key (env) and write-report
+    *pulls* from W&B with the same key — the integration is what links the
+    scope to W&B so the `(exp,var,run) → W&B run` pointer resolves. Chronicle's
+    resolver refuses to auto-pick when a scope has two-or-more active wandb
+    integrations, and prior runs accumulate them — so delete every existing
+    wandb integration on the scope first, then create one fresh."""
+    h = {"Authorization": f"Bearer {jwt}"}
+    existing = requests.get(f"{CI_URL}/v1/integrations", headers=h, params={"scope_id": scope_id}, timeout=30)
+    if existing.ok:
+        for it in existing.json() or []:
+            if it.get("integration_type") == "wandb" and it.get("id"):
+                d = requests.delete(f"{CI_URL}/v1/integrations/{it['id']}", headers=h, timeout=30)
+                if not (d.ok or d.status_code == 404):
+                    print(f"  warn: could not delete stale wandb integration {it['id']} (HTTP {d.status_code})")
     resp = requests.post(
         f"{CI_URL}/v1/integrations",
-        headers={"Authorization": f"Bearer {jwt}"},
+        headers=h,
         json={
             "scope_id": scope_id,
             "integration_type": "wandb",
@@ -124,94 +148,76 @@ def ensure_wandb_integration(jwt: str, scope_id: str, wandb_key: str) -> None:
         },
         timeout=60,
     )
-    # 2xx = created; 409 / "exists" = already provisioned (idempotent).
     if resp.ok or resp.status_code == 409:
-        print(f"  W&B integration ensured (HTTP {resp.status_code}).")
+        print(f"  W&B integration ensured (HTTP {resp.status_code}, deduped).")
         return
     raise Fail(_dump("provision W&B integration failed", resp))
 
 
-# --- Phase 1-4: drive the agent through the skills --------------------------
+# --- Phase 1-3: drive the agent through the skills --------------------------
 
-# Two bounded turns, not one long-running one. The CREATE turn creates +
-# implements + triggers (and STOPS — it must not wait for training); the driver
-# polls runs to completion; then the DISTILL turn writes the report. Baking the
-# training wait into the agent turn is what timed the first run out.
+# Two bounded turns. The CREATE+RUN turn proposes the experiment, commits two
+# variations, and — for each — writes a tiny CPU training, logs the loss curve to
+# W&B, and marks the run via chronicle-run-variation (start→succeed); it STOPS
+# without writing a report. The driver then verifies the runs and the DISTILL
+# turn writes the report. (Training is numpy-only + seconds each, so create+run
+# fits one turn; split create/run if it ever crowds the budget.)
 CREATE_PROMPT = """\
-You are helping a researcher with the Methodic platform via the chronicle MCP \
-tools and the methodic skills. Do exactly this, then STOP — do NOT wait for \
-training and do NOT write any report:
+You are a researcher using the Methodic platform via the chronicle MCP tools and \
+the methodic skills. You bring your OWN training code and run it yourself on this \
+machine (CPU) — Methodic RECORDS the runs; it does NOT run training for you. Do \
+exactly the following, then STOP — do NOT write any report yet:
 
 1. Use the propose-experiment skill to create ONE experiment for the hypothesis: \
-"A 3-layer MLP fits the damped-ripple function; wider hidden layers fit it \
-better." Use the experiment slug "{slug}". Attach the hypothesis as a \
-hypothesis_report and create + link a research prompt.
+"A small MLP fits a damped-ripple function; a wider hidden layer fits it better." \
+Use the experiment slug "{slug}". Attach the hypothesis as a hypothesis_report \
+and create + link a research prompt.
 
-2. Use the author-variation skill THREE times to create and COMMIT three \
-variations. There is no git repo provisioned in this environment, so use the \
-skill's in-context fallback: take the COMPLETE base config below VERBATIM and \
-change ONLY model.hidden_dim. Pass the full resulting YAML as the variation's \
-config_yaml — do NOT drop, rename, or summarize any field. model.name, \
-dataset.name, packages, the objective losses/metrics, and the trainer block are \
-ALL required by the worker; a config missing model.name crashes training with \
-KeyError. Name the variations "hidden_dim_32", "hidden_dim_128", \
-"hidden_dim_256" (hidden_dim = 32, 128, 256 respectively) with a one-line \
-hypothesis each. When you create each variation, pass \
-launch_config={{"runner_type": "menlo_park_persistent"}} (the variations.create \
-launch_config argument) — without it the committed run never dispatches to a \
-worker. Then trigger a run for each committed variation.
+2. Use the author-variation skill to create and COMMIT exactly TWO variations, \
+named EXACTLY "hidden_dim_8" and "hidden_dim_32". There is no git repo here, so \
+pass the config_yaml inline. The config is just the knob YOUR training reads — \
+keep it minimal, e.g.:
+    model:
+      hidden_dim: 8
+Give each a one-line hypothesis. Do NOT pass any launch_config or runner_type — \
+you run these yourself; you are not dispatching to a Methodic worker.
 
-BASE CONFIG — copy verbatim into each variation's config_yaml, changing ONLY
-model.hidden_dim:
-
-packages:
-  - "menlo_park.examples.ripple"
-
-model:
-  name: ripple_model
-  input_dim: 2
-  hidden_dim: 32
-  num_layers: 2
-  output_dim: 1
-
-dataset:
-  name: ripple_dataset_config
-  grid_size: 16
-
-objective:
-  losses:
-    - name: mse_loss
-  metrics:
-    - name: mae_metric
-
-trainer:
-  learning_rate: 0.01
-  max_steps: 20
-  per_device_train_batch_size: 64
-  logging_steps: 5
-  log_level: info
-  save_steps: 100
-  seed: 42
-  use_cpu: true
-  use_cpu: true
+3. For EACH of the two committed variations, run it yourself with the \
+chronicle-run-variation skill (run number 0):
+   - Write a tiny CPU training in Python, numpy ONLY (no torch, no GPU): a small \
+     MLP with `hidden_dim` hidden units (read hidden_dim from the variation \
+     config), fit it for ~50 gradient steps to the damped-ripple target \
+     f(x) = exp(-x) * sin(5x) sampled on a small 1-D grid, computing a REAL MSE \
+     each step.
+   - Log the loss curve to Weights & Biases (the `wandb` package; WANDB_API_KEY \
+     is in the env): wandb.init(project=..., name="{slug}/v<var>/r0"), \
+     wandb.log({{"loss": mse, "step": i}}) each step, then wandb.finish(). \
+     Capture the W&B run id / entity / project.
+   - Use chronicle-run-variation to record the Methodic run: run.start(...) \
+     passing the W&B run id/entity/project so the run is linked, then \
+     run.succeed() when training finishes (run.fail(...) on error).
+   Keep each training to a few seconds. The wider hidden_dim (32) should reach a \
+   LOWER final loss than 8 — that contrast is the result the report will distill.
 
 As your final line, print exactly: EXPERIMENT_ID=<the uuid>"""
 
 DISTILL_PROMPT = """\
-The three runs for Methodic experiment {exp_id} have completed. Use the \
-write-report skill to write an experiment-level takeaways_report. Before writing \
-it, PULL the W&B metrics for the runs via the chronicle wandb tools and include \
-the actual final metric values (e.g. loss / mae) for each variation in the \
-report body. When done, print exactly: DONE
+The two runs for Methodic experiment {exp_id} are complete. Use the write-report \
+skill to write an experiment-level takeaways_report. First PULL the REAL W&B \
+metrics yourself: for each variation's run, read the run's `wandb_run` pointer \
+from Chronicle (the experiment's outputs include a `wandb_run` asset per run, \
+carrying entity/project/run_id) and fetch the final loss from W&B DIRECTLY with \
+your own WANDB_API_KEY — the write-report skill documents `wandb_metrics_for_run` \
+for exactly this. Include each variation's ACTUAL final loss in the report body \
+and state which hidden_dim reached the lower loss. When done, print exactly: DONE
 """
 
 
 def _agent_turn(prompt: str, label: str, api_key: str, log_dir: pathlib.Path, timeout: int) -> str:
     """Run ONE headless Claude turn (skills plugin + chronicle MCP). Captures
     stdout/stderr to the log dir **even on timeout**, and returns the transcript
-    `result` text. `--permission-mode auto` runs unattended (Opus 4.8 server-side
-    safety classifier) so the skills' Bash/MCP calls don't block on a prompt —
-    `acceptEdits` only auto-accepts edits, which is what hung the first run."""
+    `result` text. `--permission-mode auto` runs unattended so the skills'
+    Bash/MCP calls (including running the agent's own training) don't block."""
     mcp_config = log_dir / "mcp.json"
     mcp_config.write_text(json.dumps({"mcpServers": {"chronicle": {
         "type": "http", "url": f"{CI_URL}{MCP_PATH}",
@@ -271,9 +277,9 @@ def _agent_turn(prompt: str, label: str, api_key: str, log_dir: pathlib.Path, ti
     return result_text if result_text is not None else (out or "")
 
 
-def create_experiment_and_variations(api_key: str, slug: str, log_dir: pathlib.Path) -> str:
-    """Create turn → returns the experiment_id from the EXPERIMENT_ID=<uuid> marker."""
-    text = _agent_turn(CREATE_PROMPT.format(slug=slug), "create", api_key, log_dir, timeout=900)
+def create_run_variations(api_key: str, slug: str, log_dir: pathlib.Path) -> str:
+    """CREATE+RUN turn → returns the experiment_id from the EXPERIMENT_ID=<uuid> marker."""
+    text = _agent_turn(CREATE_PROMPT.format(slug=slug), "create", api_key, log_dir, timeout=RUN_WAIT_SECS)
     for line in reversed(text.splitlines()):
         if line.strip().startswith("EXPERIMENT_ID="):
             return line.strip().split("=", 1)[1].strip()
@@ -281,7 +287,7 @@ def create_experiment_and_variations(api_key: str, slug: str, log_dir: pathlib.P
 
 
 def distill(api_key: str, exp_id: str, log_dir: pathlib.Path) -> None:
-    """Distill turn → write-report pulling W&B, after the runs have completed."""
+    """Distill turn → write-report pulling W&B agent-side, after the runs complete."""
     _agent_turn(DISTILL_PROMPT.format(exp_id=exp_id), "distill", api_key, log_dir, timeout=900)
 
 
@@ -297,16 +303,19 @@ def assert_experiment(jwt: str, exp_id: str) -> None:
         raise Fail(_dump(f"experiment {exp_id} not found", detail))
     print(f"  experiment {exp_id} exists.")
 
-    # Variations are embedded in the experiment detail — there is no GET on
-    # /experiments/{id}/variations (that path is POST-create; GET -> 405).
+    # Variations are embedded in the experiment detail (no GET on
+    # /experiments/{id}/variations — that path is POST-create; GET -> 405).
     rows = detail.json().get("variations", [])
     committed = [v for v in rows if (v.get("state") == "committed" or v.get("committed_at"))]
-    if len(committed) < 3:
-        raise Fail(f"expected >=3 committed variations, got {len(committed)} of {len(rows)}: {rows}")
-    print(f"  {len(committed)} committed variations.")
+    if len(committed) < EXPECTED_RUNS:
+        raise Fail(
+            f"expected >={EXPECTED_RUNS} committed variations, got {len(committed)} "
+            f"of {len(rows)}: {rows}"
+        )
+    print(f"  {len(committed)} committed variations (>= {EXPECTED_RUNS}).")
 
-    # hypothesis_report is secondary — warn (don't fail) if its exact placement
-    # differs, so it can't false-fail the run; the variations are load-bearing.
+    # hypothesis_report is secondary — warn (don't fail) on placement, so it
+    # can't false-fail the run; the runs + report are the load-bearing checks.
     if _has_asset_type(jwt, exp_id, "hypothesis_report"):
         print("  hypothesis_report present.")
     else:
@@ -324,9 +333,11 @@ def _has_asset_type(jwt: str, exp_id: str, asset_type: str) -> bool:
 
 
 def wait_for_runs(jwt: str, exp_id: str) -> None:
-    """Driver-side wait: poll the variations until each has a *succeeded* run
-    (the runner-worker trains them). Fail fast on a terminal failure. This is
-    the wait that must NOT live inside the agent turn."""
+    """Driver-side wait: poll until >= EXPECTED_RUNS committed variations have a
+    *succeeded* run (the agent ran + marked them in the create turn, so this is
+    quick verification). Fail fast on any terminal failure. NOT scoped to a fixed
+    variation count — extra variations the agent over-produced have no run and are
+    tolerated; only the succeeded count matters."""
     deadline = time.time() + RUN_WAIT_SECS
     failed = ("failed_crash", "failed_abandoned", "failed_lost")
     last = "no status"
@@ -334,19 +345,33 @@ def wait_for_runs(jwt: str, exp_id: str) -> None:
         r = _get(f"/experiments/{exp_id}", jwt)
         if r.ok:
             rows = r.json().get("variations", [])
-            # Only committed variations get runs; the auto-created base
-            # variation (v0) stays `open` with no run and would never reach
-            # `succeeded`, so exclude it (mirrors assert_experiment's filter).
-            committed = [v for v in rows if v.get("state") == "committed" or v.get("committed_at")]
-            statuses = [v.get("latest_status") for v in committed]
-            if committed and all(s == "succeeded" for s in statuses):
-                print(f"  all {len(committed)} committed-variation runs succeeded.")
-                return
-            if any(s in failed for s in statuses):
+            statuses = [v.get("latest_status") for v in rows]
+            bad = [s for s in statuses if s in failed]
+            if bad:
                 raise Fail(f"a run failed terminally: {statuses}")
+            succeeded = sum(1 for s in statuses if s == "succeeded")
+            if succeeded >= EXPECTED_RUNS:
+                print(f"  {succeeded} variation runs succeeded (>= {EXPECTED_RUNS}).")
+                return
             last = f"statuses: {statuses}"
-        time.sleep(20)
-    raise Fail(f"runs did not all succeed within {RUN_WAIT_SECS}s; last {last}")
+        time.sleep(15)
+    raise Fail(f"fewer than {EXPECTED_RUNS} runs succeeded within {RUN_WAIT_SECS}s; last {last}")
+
+
+def assert_wandb_linked(jwt: str, exp_id: str) -> None:
+    """Each succeeded run should carry a linked `wandb_run` output asset — the
+    pointer write-report reads to pull metrics. This is the seam that proves the
+    agent linked W&B at run-start (chronicle-run-variation → runs.start)."""
+    r = _get(f"/experiments/{exp_id}/outputs", jwt)
+    if not r.ok:
+        raise Fail(_dump("list experiment outputs failed", r))
+    wandb_runs = [a for a in r.json() if a.get("asset_type") == "wandb_run"]
+    if len(wandb_runs) < EXPECTED_RUNS:
+        raise Fail(
+            f"expected >={EXPECTED_RUNS} linked wandb_run assets, got {len(wandb_runs)}: "
+            f"{[a.get('asset_config') for a in wandb_runs]}"
+        )
+    print(f"  {len(wandb_runs)} wandb_run pointers linked (>= {EXPECTED_RUNS}).")
 
 
 def wait_for_distillation(jwt: str, exp_id: str) -> dict:
@@ -362,7 +387,7 @@ def wait_for_distillation(jwt: str, exp_id: str) -> dict:
                     return a
             last = f"output types: {[a.get('asset_type') for a in r.json()]}"
         time.sleep(15)
-    raise Fail(f"no takeaways_report within {RUN_WAIT_SECS}s (runs + distillation); last: {last}")
+    raise Fail(f"no takeaways_report within {RUN_WAIT_SECS}s (distillation); last: {last}")
 
 
 def assert_report_pulled_wandb(report: dict) -> None:
@@ -380,7 +405,8 @@ def assert_report_pulled_wandb(report: dict) -> None:
 
 def assert_searchable(jwt: str, exp_id: str) -> None:
     """POST /search and poll until the report surfaces — the one assertion that
-    exercises the real Vertex push (indexing is eventually consistent)."""
+    exercises the real Vertex push (indexing is eventually consistent). A `got
+    []`/timeout here is Vertex propagation latency, not a code regression."""
     deadline = time.time() + SEARCH_WAIT_SECS
     last = "no hit"
     while time.time() < deadline:
@@ -419,63 +445,6 @@ def cleanup(jwt: str, exp_id: str) -> None:
     print(f"  cleanup: delete -> {r.status_code}, retract -> {rr.status_code}")
 
 
-# --- The worker: train the triggered runs ON the runner ---------------------
-
-def start_worker(api_key: str, scope_experiment: str) -> str | None:
-    """Run the public methodic worker image (`ENTRYPOINT menlo-park-d`) as a
-    persistent worker registered to ci, so the triggered variation runs train
-    here on the runner's CPU — no ci provisioning, no GCP WIF. The worker logs
-    to W&B with WANDB_API_KEY (same account the integration uses), so the
-    server can later pull the metrics.
-
-    Scoped to `scope_experiment` via CHRONICLE_SCOPE_EXPERIMENT so it ONLY
-    drains this run's experiment. The ci account is shared across runs, so an
-    unscoped worker claims the oldest pending run for the account — stale
-    orphans from earlier/cancelled runs — and trains the wrong config (the
-    source of spurious failures like training `KeyError: 'name'`). Honored by
-    worker image >= 0.2.0; older images ignore the unknown env var.
-
-    RISK (the thing the first CI run validates): the worker installs each job's
-    *code_artifact* and trains it, so the skill-created experiment's repo must
-    carry an installable training package. If it doesn't, runs won't produce
-    W&B data and `wait_for_distillation` will time out — that's the seam to
-    iterate on (seed the experiment repo with a tiny package fixture)."""
-    try:
-        out = subprocess.run(
-            [
-                "docker", "run", "-d",
-                "-e", f"CHRONICLE_API_KEY={api_key}",
-                "-e", f"CHRONICLE_SERVER_URL={CI_URL}",
-                "-e", f"CHRONICLE_SCOPE_EXPERIMENT={scope_experiment}",
-                "-e", f"WANDB_API_KEY={os.environ['WANDB_API_KEY']}",
-                "-e", "RUST_LOG=info",  # so worker.log is non-empty for diagnosis
-                # CPU-only torch — the runner has no GPU, so skip the multi-GB
-                # nvidia-cuda-* wheel stack. torch resolves CPU-build from the
-                # pytorch CPU index; everything else falls back to PyPI.
-                "-e", "PIP_INDEX_URL=https://download.pytorch.org/whl/cpu",
-                "-e", "PIP_EXTRA_INDEX_URL=https://pypi.org/simple",
-                "methodiclabs/methodic:latest",
-            ],
-            capture_output=True, text=True, timeout=300, check=True,
-        )
-        cid = out.stdout.strip()
-        print(f"  worker started (container {cid[:12]}).")
-        return cid
-    except (subprocess.CalledProcessError, FileNotFoundError) as e:
-        detail = getattr(e, "stderr", "") or str(e)
-        print(f"  WARN: could not start worker ({detail[:300]}); runs won't train.")
-        return None
-
-
-def stop_worker(cid: str | None, log_dir: pathlib.Path) -> None:
-    if not cid:
-        return
-    logs = subprocess.run(["docker", "logs", cid], capture_output=True, text=True)
-    (log_dir / "worker.log").write_text((logs.stdout or "") + (logs.stderr or ""))
-    subprocess.run(["docker", "rm", "-f", cid], capture_output=True)
-    print(f"  worker stopped (logs -> e2e/logs/worker.log).")
-
-
 # --- Orchestration ----------------------------------------------------------
 
 def main() -> int:
@@ -492,7 +461,7 @@ def main() -> int:
     slug = f"{SLUG_PREFIX}-{RUN_ID}"
     wandb_key = os.environ["WANDB_API_KEY"]
 
-    print("=== Methodic skills E2E against ci ===")
+    print("=== Methodic skills E2E against ci (agent-owned training) ===")
     jwt = auth0_bearer(account)
     print("  authenticated to ci (Auth0 password grant).")
     scope_id = caller_sub(jwt)
@@ -501,25 +470,21 @@ def main() -> int:
     print("  minted sk_user_* key.")
 
     exp_id = None
-    worker_cid = None
     try:
-        # Create the experiment + variations FIRST, then start the worker
-        # SCOPED to it — so the worker only drains this run's runs and ignores
-        # stale orphans the shared ci account accumulated from earlier runs.
-        # The triggered runs simply wait in the queue until the worker is up.
-        exp_id = create_experiment_and_variations(api_key, slug, log_dir)
+        # The agent proposes the experiment, commits two variations, and runs
+        # each itself (its own numpy CPU training → W&B → runs.start/succeed).
+        exp_id = create_run_variations(api_key, slug, log_dir)
         print(f"=== created experiment {exp_id} ===")
         assert_experiment(jwt, exp_id)
-        worker_cid = start_worker(api_key, exp_id)
-        wait_for_runs(jwt, exp_id)        # driver waits; not the agent
-        distill(api_key, exp_id, log_dir)  # distill turn, runs now complete
+        wait_for_runs(jwt, exp_id)         # agent already marked them; quick verify
+        assert_wandb_linked(jwt, exp_id)   # the W&B pointers distillation will read
+        distill(api_key, exp_id, log_dir)  # distill turn: write-report pulls W&B agent-side
         report = wait_for_distillation(jwt, exp_id)
         assert_report_pulled_wandb(report)
         assert_searchable(jwt, exp_id)
         print("\nPASS skills-e2e")
         return 0
     finally:
-        stop_worker(worker_cid, log_dir)
         if exp_id:
             cleanup(jwt, exp_id)
 
