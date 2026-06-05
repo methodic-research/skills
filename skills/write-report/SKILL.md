@@ -52,6 +52,42 @@ The agent drafts the body with these sections (Markdown headings):
    `![alt](asset:<id>)` (step 1 of the workflow uploads them and returns the
    ids).
 
+## Pulling the run's metrics (agent-side W&B) — for a distillation
+
+When the write-up distills **run results** (a `takeaways_report` after runs),
+pull the REAL metrics yourself before drafting, so the numbers in "What worked"
+are the ones the training produced — not invented. Chronicle stores a
+`wandb_run` pointer per run (linked at run-start by `chronicle-run-variation`);
+read that pointer, then fetch W&B **directly with your own `WANDB_API_KEY`**:
+
+```python
+import wandb  # WANDB_API_KEY in env
+
+def wandb_metrics_for_run(chronicle, experiment_id, variation, run):
+    """Resolve the run's W&B pointer from Chronicle, then fetch from W&B."""
+    outputs = chronicle._transport.get(f"/experiments/{experiment_id}/outputs")
+    ptr = next(
+        (a for a in outputs
+         if a.get("asset_type") == "wandb_run"
+         and a.get("variation") == variation and a.get("run") == run),
+        None,
+    )
+    if not ptr:
+        return None  # this run has no linked W&B run
+    cfg = ptr.get("asset_config") or {}
+    wb_run = wandb.Api().run(f"{cfg['entity']}/{cfg['project']}/{cfg['run_id']}")
+    return {
+        "summary": dict(wb_run.summary),   # final metric values
+        "history": wb_run.history(),       # the logged curves (a DataFrame)
+        "url": wb_run.url,
+    }
+```
+
+The agent fetches W&B itself — **no chronicle-server W&B key needed**: locally
+your env already has `WANDB_API_KEY`; a managed (tartarus) distiller is
+provisioned one. Cite the real `summary` values in "What worked", and use
+`history` to render a loss-curve figure (uploaded in step 1).
+
 ## Inputs
 
 - **`experiment_id`** — the Chronicle experiment UUID. Resolve in order:
@@ -180,5 +216,7 @@ Tell the user:
 ## Requires
 
 - `pip install methodic-research`
+- For a distillation that pulls metrics: `pip install wandb` + `WANDB_API_KEY`
+  exported (the agent fetches W&B directly — no chronicle-server W&B key).
 - `CHRONICLE_API_KEY` exported (or `methodic auth login` already done)
 - No `git` — this skill writes assets via the API; no repo checkout needed.
