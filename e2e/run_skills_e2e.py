@@ -165,7 +165,7 @@ BASE CONFIG — copy verbatim into each variation's config_yaml, changing ONLY
 model.hidden_dim:
 
 packages:
-  - "ripple_physics"
+  - "menlo_park.examples.ripple"
 
 model:
   name: ripple_model
@@ -192,6 +192,7 @@ trainer:
   log_level: info
   save_steps: 100
   seed: 42
+  use_cpu: true
   use_cpu: true
 
 As your final line, print exactly: EXPERIMENT_ID=<the uuid>"""
