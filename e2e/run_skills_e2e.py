@@ -334,9 +334,13 @@ def wait_for_runs(jwt: str, exp_id: str) -> None:
         r = _get(f"/experiments/{exp_id}", jwt)
         if r.ok:
             rows = r.json().get("variations", [])
-            statuses = [v.get("latest_status") for v in rows]
-            if rows and all(s == "succeeded" for s in statuses):
-                print(f"  all {len(rows)} runs succeeded.")
+            # Only committed variations get runs; the auto-created base
+            # variation (v0) stays `open` with no run and would never reach
+            # `succeeded`, so exclude it (mirrors assert_experiment's filter).
+            committed = [v for v in rows if v.get("state") == "committed" or v.get("committed_at")]
+            statuses = [v.get("latest_status") for v in committed]
+            if committed and all(s == "succeeded" for s in statuses):
+                print(f"  all {len(committed)} committed-variation runs succeeded.")
                 return
             if any(s in failed for s in statuses):
                 raise Fail(f"a run failed terminally: {statuses}")
