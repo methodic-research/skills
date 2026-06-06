@@ -25,6 +25,8 @@ response dumped). Phases are ordered so a failure points at the exact seam.
 
 from __future__ import annotations
 
+from collections import Counter
+
 import json
 import os
 import pathlib
@@ -183,21 +185,28 @@ Give each a one-line hypothesis. Do NOT pass any launch_config or runner_type �
 you run these yourself; you are not dispatching to a Methodic worker.
 
 3. For EACH of the two committed variations, run it yourself with the \
-chronicle-run-variation skill (run number 0):
-   - Write a tiny CPU training in Python, numpy ONLY (no torch, no GPU): a small \
-     MLP with `hidden_dim` hidden units (read hidden_dim from the variation \
-     config), fit it for ~50 gradient steps to the damped-ripple target \
-     f(x) = exp(-x) * sin(5x) sampled on a small 1-D grid, computing a REAL MSE \
-     each step.
-   - Log the loss curve to Weights & Biases (the `wandb` package; WANDB_API_KEY \
-     is in the env): wandb.init(project=..., name="{slug}/v<var>/r0"), \
-     wandb.log({{"loss": mse, "step": i}}) each step, then wandb.finish(). \
-     Capture the W&B run id / entity / project.
-   - Use chronicle-run-variation to record the Methodic run: run.start(...) \
-     passing the W&B run id/entity/project so the run is linked, then \
-     run.succeed() when training finishes (run.fail(...) on error).
-   Keep each training to a few seconds. The wider hidden_dim (32) should reach a \
-   LOWER final loss than 8 — that contrast is the result the report will distill.
+chronicle-run-variation skill (run number 0). Linking the run's W&B run is \
+REQUIRED here — a run recorded WITHOUT its `wandb_run` pointer is a test \
+failure — so do these IN ORDER:
+   a. START THE W&B RUN FIRST, before you mark the Methodic run, so you have its \
+      identifiers: wandb.init(project=..., name="{slug}/v<var>/r0") (the `wandb` \
+      package; WANDB_API_KEY is in the env). Capture ALL THREE of wandb_run_id, \
+      wandb_entity, wandb_project off the run object and confirm none is \
+      empty/None — if `run.entity` comes back None, set wandb_entity to your W&B \
+      entity explicitly. Do NOT proceed to run.start without all three.
+   b. MARK THE METHODIC RUN with chronicle-run-variation: call run.start passing \
+      wandb_run_id + wandb_entity + wandb_project (ALL THREE) so Chronicle links \
+      the wandb_run pointer. NEVER call run.start bare. If run.start returns HTTP \
+      400 `wandb_partial_triple`, one of the three did not resolve — fix it and \
+      retry WITH the full triple; do NOT strip the W&B fields to get past it.
+   c. RUN THE TRAINING: a tiny CPU fit in Python, numpy ONLY (no torch, no GPU) — \
+      a small MLP with `hidden_dim` hidden units (read hidden_dim from the \
+      variation config), ~50 gradient steps to the damped-ripple target \
+      f(x) = exp(-x) * sin(5x) on a small 1-D grid, a REAL MSE each step logged \
+      with wandb.log({{"loss": mse, "step": i}}).
+   d. FINISH: wandb.finish(), then run.succeed() (run.fail(...) on error). Keep \
+      each training to a few seconds. The wider hidden_dim (32) should reach a \
+      LOWER final loss than 8 — that contrast is the result the report distills.
 
 As your final line, print exactly: EXPERIMENT_ID=<the uuid>"""
 
@@ -361,17 +370,44 @@ def wait_for_runs(jwt: str, exp_id: str) -> None:
 def assert_wandb_linked(jwt: str, exp_id: str) -> None:
     """Each succeeded run should carry a linked `wandb_run` output asset — the
     pointer write-report reads to pull metrics. This is the seam that proves the
-    agent linked W&B at run-start (chronicle-run-variation → runs.start)."""
+    agent linked W&B at run-start (chronicle-run-variation → runs.start).
+
+    Deliberately a single GET, NOT a poll: `/experiments/{id}/outputs` is a
+    synchronous DB read (no Vertex/index propagation), and the pointer is written
+    synchronously at run-start — strictly before a run reaches `succeeded`. So
+    once the runs are succeeded (wait_for_runs, above) the pointers either exist
+    or never will; a `got 0` is the agent having called run.start WITHOUT the W&B
+    triple, not an indexing race to wait out. On failure we dump enough state to
+    show exactly that — the OTHER output assets are present (so the endpoint
+    isn't lagging) and only the wandb_run pointers are missing."""
     r = _get(f"/experiments/{exp_id}/outputs", jwt)
     if not r.ok:
         raise Fail(_dump("list experiment outputs failed", r))
-    wandb_runs = [a for a in r.json() if a.get("asset_type") == "wandb_run"]
-    if len(wandb_runs) < EXPECTED_RUNS:
-        raise Fail(
-            f"expected >={EXPECTED_RUNS} linked wandb_run assets, got {len(wandb_runs)}: "
-            f"{[a.get('asset_config') for a in wandb_runs]}"
-        )
-    print(f"  {len(wandb_runs)} wandb_run pointers linked (>= {EXPECTED_RUNS}).")
+    outputs = r.json()
+    wandb_runs = [a for a in outputs if a.get("asset_type") == "wandb_run"]
+    if len(wandb_runs) >= EXPECTED_RUNS:
+        print(f"  {len(wandb_runs)} wandb_run pointers linked (>= {EXPECTED_RUNS}).")
+        return
+    # Diagnostic dump (the endpoint is synchronous, so this is real state, not a
+    # snapshot mid-propagation): show the other assets came back fine and the
+    # runs succeeded — i.e. run.start carried no W&B triple. The CI artifact
+    # e2e/logs/agent.create.stdout has the actual run.start payload.
+    types = dict(Counter(a.get("asset_type") for a in outputs))
+    detail = _get(f"/experiments/{exp_id}", jwt)
+    run_states = (
+        [(v.get("name"), v.get("latest_status")) for v in detail.json().get("variations", [])]
+        if detail.ok
+        else "unavailable"
+    )
+    raise Fail(
+        f"expected >={EXPECTED_RUNS} linked wandb_run assets, got {len(wandb_runs)}.\n"
+        f"    output asset types present (endpoint is synchronous — NOT an index lag): {types}\n"
+        f"    variation run states: {run_states}\n"
+        f"    => runs were marked succeeded but run.start carried no "
+        f"{{wandb_run_id, wandb_entity, wandb_project}} triple (or hit a "
+        f"wandb_partial_triple 400 and retried bare). Inspect the uploaded "
+        f"e2e/logs/agent.create.stdout for the run.start payload."
+    )
 
 
 def wait_for_distillation(jwt: str, exp_id: str) -> dict:
