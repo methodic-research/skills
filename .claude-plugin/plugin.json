@@ -1,7 +1,7 @@
 {
   "$schema": "https://code.claude.com/schemas/plugin.json",
   "name": "chronicle",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Skills for working with Chronicle experiments via the methodic-research SDK — research surveys, hypothesis-driven experiment + variation generation, history/lineage search, prep/fork variations, status.",
   "homepage": "https://docs.methodiclabs.ai",
   "author": {
