@@ -22,9 +22,11 @@ thin orchestration over the SDK's `chronicle.datasets` namespace; it never
 makes raw HTTP calls.
 
 Datasets are plain assets (`asset_type="dataset"`): there is no separate
-dataset table, and they are **not** search-indexed (discovery is through the
-experiment/variation link + provenance, not full-text). The upload records a
-provenance record on the asset so the bytes are verifiable later.
+dataset table. They are search-indexed on **metadata only** — the dataset's
+name + provenance record, never the bytes — and become discoverable in search
+once linked (or output-stamped), alongside discovery through the
+experiment/variation link. The upload records a provenance record on the asset
+so the bytes are verifiable later.
 
 ## Sizing — single PUT per component, no multipart
 
@@ -151,11 +153,13 @@ Tell the user:
 
 ## MCP-native agents
 
-An agent driving Chronicle through the MCP server (not the Python SDK) has the
-`chronicle.upload_asset` tool for the **single-file / small-inline** case
-(inline base64 ≤2 MiB, or a presigned `upload_url` for a single large object).
-Multi-file / sharded datasets are this skill's job — the SDK splits a directory
-into components, which the one-shot MCP tool deliberately doesn't.
+An agent driving Chronicle through the MCP server (not the Python SDK) has
+`chronicle.upload_asset` for the **single-file / small-inline** upload case
+(inline base64 ≤2 MiB, or a presigned `upload_url` for a single large object)
+and `chronicle.load_asset(asset_id)` to mint presigned **read** URLs +
+provenance for an existing dataset's components. Multi-file / sharded datasets
+are this skill's job — the SDK splits a directory into components, which the
+one-shot MCP tools deliberately don't.
 
 ## Requires
 
