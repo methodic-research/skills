@@ -60,15 +60,14 @@ from methodic import Chronicle
 
 chronicle = Chronicle.from_env()  # CHRONICLE_SERVER_URL + CHRONICLE_API_KEY
 
-# 1. Resolve the target organization. The caller's scopes (the orgs/teams
-#    they belong to, each with id + slug + name) come from /v1/me/scopes.
-#    Match the user's named org against them — don't guess a UUID.
-scopes = chronicle._transport.get("/v1/me/scopes")
-#    scopes is a list of {id, kind: "organization"|"team"|"user", slug, name}
-orgs = [s for s in scopes.get("scopes", scopes) if s.get("kind") == "organization"]
+# 1. Resolve the target organization. `chronicle.me.scopes()` returns every
+#    scope the caller can operate as — their personal space plus each team /
+#    org they belong to — as a typed `Scope(id, kind, name, slug)`. Match the
+#    user's named org; don't guess a UUID.
+orgs = [s for s in chronicle.me.scopes() if s.kind == "organization"]
 #    Pick the one the user named (by slug or name); if exactly one org and the
 #    user just said "my org", use it; if ambiguous, ask which one.
-organization_id = ...  # the matched org's id
+organization_id = ...  # the matched org's id (e.g. orgs[0].id)
 
 # 2. Move. Omit `visibility` for the org-wide default; pass it to override.
 result = chronicle.experiments.move(
@@ -113,17 +112,17 @@ Tell the user:
   (`PUT /experiments/{id}`), then re-run the move.
 - **403 — "caller is not a member of organization_id/team_id …"**: you can't
   move an experiment into a scope you don't belong to. Re-resolve the target
-  against `/v1/me/scopes` (the caller's actual memberships); if the user
-  genuinely isn't a member, they need to be added to the org/team first.
+  against `chronicle.me.scopes()` (the caller's actual memberships); if the
+  user genuinely isn't a member, they need to be added to the org/team first.
 - **404**: either the experiment doesn't exist, or the caller lacks
   `Administer` on it (the server hides existence behind 404 on an authz
   miss). Confirm the id; if it's right, the caller needs `Administer` (they
   must be the experiment's owner/admin to give it away).
-- **Wrong org picked**: if `/v1/me/scopes` returned several orgs and the
-  user's phrasing was ambiguous, ask which one rather than picking the first.
+- **Wrong org picked**: if `chronicle.me.scopes()` returned several orgs and
+  the user's phrasing was ambiguous, ask which one rather than picking the first.
 
 ## Requires
 
-- `pip install methodic-research`
+- `pip install methodic-research` (≥ 0.10.0 — `experiments.move` + `me.scopes`)
 - `CHRONICLE_API_KEY` exported (or `methodic auth login` already done)
 - No `git` — this is an API-only operation.
