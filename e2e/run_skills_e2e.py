@@ -46,6 +46,7 @@ MCP_PATH = "/v1/mcp/messages"  # chronicle-server's MCP endpoint
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent  # the skills plugin dir
 RUN_ID = uuid.uuid4().hex[:8]
 SLUG_PREFIX = "skills-e2e"  # greppable for an orphan reaper
+CREATE_WAIT_SECS = int(os.environ.get("E2E_CREATE_WAIT_SECS", "600"))  # propose + commit 2 variations
 RUN_WAIT_SECS = int(os.environ.get("E2E_RUN_WAIT_SECS", "900"))  # agent runs train + marks runs
 SEARCH_WAIT_SECS = int(os.environ.get("E2E_SEARCH_WAIT_SECS", "180"))  # index propagation
 
@@ -158,17 +159,17 @@ def ensure_wandb_integration(jwt: str, scope_id: str, wandb_key: str) -> None:
 
 # --- Phase 1-3: drive the agent through the skills --------------------------
 
-# Two bounded turns. The CREATE+RUN turn proposes the experiment, commits two
-# variations, and — for each — writes a tiny CPU training, logs the loss curve to
-# W&B, and marks the run via chronicle-run-variation (start→succeed); it STOPS
-# without writing a report. The driver then verifies the runs and the DISTILL
-# turn writes the report. (Training is numpy-only + seconds each, so create+run
-# fits one turn; split create/run if it ever crowds the budget.)
+# Three bounded turns: CREATE → RUN → DISTILL. Splitting CREATE from RUN keeps
+# each agent turn well inside its budget — the old combined create+run turn
+# (propose + 2 commits + 2 trainings + 2 W&B + 2 run-marks) crowded the 900s
+# ceiling and timed out under any API throttling. CREATE proposes the experiment
+# + commits the two variations and STOPS; RUN does the per-variation training +
+# W&B + run-marks; DISTILL writes the report. (Training is numpy-only + seconds
+# each.)
 CREATE_PROMPT = """\
 You are a researcher using the Methodic platform via the chronicle MCP tools and \
-the methodic skills. You bring your OWN training code and run it yourself on this \
-machine (CPU) — Methodic RECORDS the runs; it does NOT run training for you. Do \
-exactly the following, then STOP — do NOT write any report yet:
+the methodic skills. Do exactly the following, then STOP — do NOT run any \
+training and do NOT write any report yet:
 
 1. Use the propose-experiment skill to create ONE experiment for the hypothesis: \
 "A small MLP fits a damped-ripple function; a wider hidden layer fits it better." \
@@ -184,7 +185,15 @@ keep it minimal, e.g.:
 Give each a one-line hypothesis. Do NOT pass any launch_config or runner_type — \
 you run these yourself; you are not dispatching to a Methodic worker.
 
-3. For EACH of the two committed variations, run it yourself with the \
+As your final line, print exactly: EXPERIMENT_ID=<the uuid>"""
+
+RUN_PROMPT = """\
+You are a researcher using the Methodic platform via the chronicle MCP tools and \
+the methodic skills. You bring your OWN training code and run it yourself on this \
+machine (CPU) — Methodic RECORDS the runs; it does NOT run training for you.
+
+Methodic experiment {exp_id} already has TWO committed variations named EXACTLY \
+"hidden_dim_8" and "hidden_dim_32". For EACH of them, run it yourself with the \
 chronicle-run-variation skill (run number 0). Linking the run's W&B run is \
 REQUIRED here — a run recorded WITHOUT its `wandb_run` pointer is a test \
 failure — so do these IN ORDER:
@@ -208,7 +217,7 @@ failure — so do these IN ORDER:
       each training to a few seconds. The wider hidden_dim (32) should reach a \
       LOWER final loss than 8 — that contrast is the result the report distills.
 
-As your final line, print exactly: EXPERIMENT_ID=<the uuid>"""
+When done, print exactly: RUNS_DONE"""
 
 DISTILL_PROMPT = """\
 The two runs for Methodic experiment {exp_id} are complete. Use the write-report \
@@ -286,13 +295,27 @@ def _agent_turn(prompt: str, label: str, api_key: str, log_dir: pathlib.Path, ti
     return result_text if result_text is not None else (out or "")
 
 
-def create_run_variations(api_key: str, slug: str, log_dir: pathlib.Path) -> str:
-    """CREATE+RUN turn → returns the experiment_id from the EXPERIMENT_ID=<uuid> marker."""
-    text = _agent_turn(CREATE_PROMPT.format(slug=slug), "create", api_key, log_dir, timeout=RUN_WAIT_SECS)
+def create_variations(api_key: str, slug: str, log_dir: pathlib.Path) -> str:
+    """CREATE turn → propose the experiment + commit two variations (no training).
+    Returns the experiment_id from the EXPERIMENT_ID=<uuid> marker. Kept light so
+    it stays well inside its budget; the training-heavy half is `run_variations`."""
+    text = _agent_turn(
+        CREATE_PROMPT.format(slug=slug), "create", api_key, log_dir, timeout=CREATE_WAIT_SECS
+    )
     for line in reversed(text.splitlines()):
         if line.strip().startswith("EXPERIMENT_ID="):
             return line.strip().split("=", 1)[1].strip()
     raise Fail(f"create turn did not emit EXPERIMENT_ID; result tail:\n{text[-2000:]}")
+
+
+def run_variations(api_key: str, slug: str, exp_id: str, log_dir: pathlib.Path) -> None:
+    """RUN turn → for EACH committed variation the agent runs its own numpy CPU
+    training, logs the loss to W&B, and marks the run (start→succeed) via
+    chronicle-run-variation. Split out of CREATE so the training-heavy half gets
+    the full budget instead of sharing it with experiment/variation creation."""
+    _agent_turn(
+        RUN_PROMPT.format(slug=slug, exp_id=exp_id), "run", api_key, log_dir, timeout=RUN_WAIT_SECS
+    )
 
 
 def distill(api_key: str, exp_id: str, log_dir: pathlib.Path) -> None:
@@ -507,12 +530,14 @@ def main() -> int:
 
     exp_id = None
     try:
-        # The agent proposes the experiment, commits two variations, and runs
-        # each itself (its own numpy CPU training → W&B → runs.start/succeed).
-        exp_id = create_run_variations(api_key, slug, log_dir)
+        # Split into two agent turns so neither crowds its budget: CREATE
+        # proposes the experiment + commits two variations; RUN does the
+        # per-variation numpy CPU training → W&B → runs.start/succeed.
+        exp_id = create_variations(api_key, slug, log_dir)
         print(f"=== created experiment {exp_id} ===")
-        assert_experiment(jwt, exp_id)
-        wait_for_runs(jwt, exp_id)         # agent already marked them; quick verify
+        assert_experiment(jwt, exp_id)     # two committed variations exist before we run
+        run_variations(api_key, slug, exp_id, log_dir)
+        wait_for_runs(jwt, exp_id)         # agent marked them; quick verify
         assert_wandb_linked(jwt, exp_id)   # the W&B pointers distillation will read
         distill(api_key, exp_id, log_dir)  # distill turn: write-report pulls W&B agent-side
         report = wait_for_distillation(jwt, exp_id)
