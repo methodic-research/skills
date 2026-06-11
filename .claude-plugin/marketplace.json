@@ -9,7 +9,7 @@
   "plugins": [
     {
       "name": "chronicle",
-      "description": "Skills for working with Chronicle experiments — research surveys, hypothesis-driven experiment + variation generation, history/lineage search, prep/fork variations, lifecycle (delete open drafts, move into an org), status.",
+      "description": "Skills for working with Chronicle experiments — research surveys, hypothesis-driven experiment + variation generation, history/lineage search, prep/fork variations, lifecycle (delete open drafts, retract committed work, move into an org), status.",
       "category": "research",
       "tags": ["chronicle", "experiments", "research", "ml-ops"],
       "source": "."
