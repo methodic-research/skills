@@ -38,7 +38,12 @@ The hypothesis comes in two forms and you produce both:
   nothing to work from.
 - **`hypothesis_document`** — the full hypothesis text (Markdown). The agent
   drafts this from the conversation; show it to the user for confirmation
-  before creating the experiment.
+  before creating the experiment. The Methodic UI renders the body inline
+  with MathJax: `$…$` for inline math, `$$…$$` for display math — and when
+  a display block spans multiple lines, each `$$` fence must sit **alone on
+  its own line** (one equation block per fence pair; a fence opened or
+  closed mid-line never terminates and swallows the headings after it).
+  Same discipline as `chronicle-write-report`.
 - **`config_yaml`** — the experiment's seed config (variation 0's config).
   Resolve in order: explicit from the user → a config the prior
   `chronicle-research-survey` / discussion produced → prompt the user for a

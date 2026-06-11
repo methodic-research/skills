@@ -30,6 +30,27 @@ Markdown document, not a full LaTeX paper; the compiled-PDF path
 (`exp.reports.<kind>.render`, template or freeform) is for that, and stays
 the canonical full artifact when one exists.
 
+**Display-math fences go on their own lines.** When a `$$…$$` block spans
+more than one line, the Markdown parser only recognizes it if each `$$`
+sits alone on its own line — a fence opened or closed mid-line never
+terminates, and the unterminated block swallows the headings and prose
+after it (the first `#` it reaches is then a MathJax error). One equation
+block per fence pair; for several display equations write several blocks:
+
+```markdown
+$$
+u_t = \nu\,\Delta u
+$$
+
+$$
+u_t + \mathbf{c}\cdot\nabla u = 0
+$$
+```
+
+— not one `$$…$$` span strung across several lines with the fences
+attached to the equations. Single-line `$$x$$` inside a sentence or table
+cell is fine.
+
 ## What the write-up must contain
 
 The agent drafts the body with these sections (Markdown headings):
