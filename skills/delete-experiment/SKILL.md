@@ -103,9 +103,12 @@ Tell the user:
    (`chronicle.experiments.retract(id, reason=...)`), which flags it and
    auto-invalidates its output assets while preserving the record.
 3. Any that **failed** and why (verbatim server message).
-4. That the underlying **asset bytes** were intentionally left intact (they
-   may be shared across experiments); only the deleted experiments' link
-   rows were removed.
+4. That the underlying **asset rows/bytes** were intentionally left intact
+   (they may be shared across experiments); only the deleted experiments'
+   link rows were removed. Assets that are now **unlinked everywhere**
+   (orphans) can be purged with chronicle-delete-asset
+   (`chronicle.assets.delete` / MCP `chronicle.delete_asset`) if the user
+   wants them gone too.
 
 ## Failure modes
 
