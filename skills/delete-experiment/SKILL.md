@@ -127,6 +127,20 @@ Tell the user:
   rather than explicit ids, the confirmation step is the safety net —
   re-list and re-confirm rather than guessing.
 
+## MCP-native agents
+
+An agent driving Chronicle through the MCP server (not the Python SDK) has
+`chronicle.delete_experiment(experiment_id)` — the same open-only hard
+delete and cascade as `chronicle.experiments.delete`, with one **additional
+guard**: the caller must be the experiment's *creator*, so an autonomous
+agent can only clean up drafts it created itself, even where `Delete` RBAC
+would allow more. Anything the guard turns away (deleting another
+principal's draft you hold `Delete` on) goes through the SDK/HTTP path.
+The committed/concluded refusal and the descendants refusal are identical
+in both paths. For retraction the MCP tool is
+`chronicle.retract_experiment` — see chronicle-retract-experiment; it has
+no creator guard (retraction preserves the record).
+
 ## Requires
 
 - `pip install methodic-research`
