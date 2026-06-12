@@ -4,6 +4,16 @@
 
 Claude Code plugin: skills for working with the [Chronicle](https://docs.methodiclabs.ai) experiment platform.
 
+These skills help your agent track research hypotheses and experimental
+results, and provide role-filtered search over past experimental results and
+uploaded research documents. Hypotheses become first-class experiments;
+variations and runs record what was tried and what it produced — metrics,
+datasets, figures, write-ups, always including what *didn't* work. Search
+respects your role's access: you find everything you're allowed to see and
+nothing you aren't. And lineage travels with the record — parents,
+retractions, invalidated outputs — so new work builds on results whose
+provenance and current standing are explicit.
+
 This repo is a Claude Code marketplace containing one plugin (`methodic`).
 
 ## Getting started
@@ -153,7 +163,7 @@ How releases reach users:
 
 1. **The repo is public.** `/plugin marketplace add methodic-research/skills` resolves with the user's git credentials, so anyone can add the marketplace and install — no extra access setup.
 2. **Manifests stay correct.** `.claude-plugin/marketplace.json` (the `methodic` plugin entry) and `.claude-plugin/plugin.json` are already in place; skills are auto-discovered from `skills/<name>/SKILL.md` — nothing else to register.
-3. **Versioning drives updates.** `plugin.json`'s `version` (currently `0.3.0`) is the release knob: bump it to publish a new version (users get it via `/plugin marketplace update`). Omit `version` instead to treat every push as a new version during active development.
+3. **Versioning drives updates.** `plugin.json`'s `version` (currently `0.3.1`) is the release knob: bump it to publish a new version (users get it via `/plugin marketplace update`). Omit `version` instead to treat every push as a new version during active development.
 4. Users then run the two commands in [step 1](#1-install-the-plugin-the-skills).
 
 ## Local development
