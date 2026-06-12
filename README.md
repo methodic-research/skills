@@ -28,6 +28,15 @@ This repo is a Claude Code marketplace containing one plugin (`methodic`).
 > same Python environment Claude Code shells out to, every skill ImportErrors on
 > `from methodic import Chronicle` and does nothing. Details below.
 
+> **Heads-up for agents (initial bootstrap).** Creating the API key happens in
+> the Methodic UI, logged in as the user — there is no API an agent can call
+> to bootstrap credentials it doesn't yet have (no key, no JWT → no access).
+> If `~/.methodic/credentials.yaml` is missing, ask the user to create a key
+> in the UI and run the one-line setup command it shows in **their** terminal,
+> then retry. Don't ask for the raw key in chat. The files that command writes
+> are the same credentials everything here reads: the skills/SDK, the MCP
+> `Authorization` header, and direct REST calls.
+
 ### Prerequisites
 
 1. **Claude Code** — the plugin host.
@@ -35,10 +44,13 @@ This repo is a Claude Code marketplace containing one plugin (`methodic`).
    ```bash
    pip install methodic-research
    ```
-3. **Chronicle credentials** — one paste, no environment variables. Creating
-   an API key in the Methodic UI shows a one-line setup command; paste it into
-   your terminal once and every skill is configured. It writes the standard
-   `~/.methodic` client config that `Chronicle.from_env()` reads:
+3. **Chronicle credentials** — one paste, no environment variables, and the
+   one step only you can do (initial bootstrap — an agent can't do it for
+   you; see the note above). Creating an API key in the Methodic UI shows a
+   one-line setup command; paste it into your terminal once and everything is
+   configured — skills/SDK, MCP, and direct REST all read the same files. It
+   writes the standard `~/.methodic` client config that `Chronicle.from_env()`
+   reads:
 
    ```bash
    # Key created in your personal context:
@@ -162,7 +174,7 @@ require that `from methodic import Chronicle` resolves.
 
 - **One skill per user-visible verb.** Keep skills small and named after what the user is trying to do, not after the API endpoint they hit.
 - **Skills depend on `methodic-research`.** Skills assume `methodic` is importable in the user's Python environment. Skills surface a clear "install methodic-research first" message if the import fails.
-- **No secrets in skills.** Auth tokens come from `methodic`'s standard config (env var `CHRONICLE_API_KEY` or `~/.methodic/credentials.yaml`). Skills never prompt for raw API keys, and never read `credentials.yaml` into context.
+- **No secrets in skills.** Auth tokens come from `methodic`'s standard config (env var `CHRONICLE_API_KEY` or `~/.methodic/credentials.yaml`). Skills never prompt for raw API keys, and never read `credentials.yaml` into context. If the config is missing entirely, stop and send the user to the Methodic UI's create-API-key flow (it prints the setup command that writes `~/.methodic`) — an agent has no credential or JWT to bootstrap with, so it cannot do this step on the user's behalf.
 - **Organization scope is explicit, with a recorded default.** An operation that belongs to an org names it on the request — the org-bearing field on the call (e.g. an experiment's `organization_id`); omit it for personal work. There is no ambient "active scope" to set on the client. The one allowed default: the API-key setup command records `organization_id:` in `~/.methodic/config.yaml` when the key was created in an organization context. When the user doesn't name an org, fill the org-bearing field from that recorded value and say which org was used in the output; an org the user names explicitly always wins. Read the default from `config.yaml` only — never `credentials.yaml`. List endpoints return everything your key can read; narrowing the view to a single org is the caller's/UI's concern, not a required parameter — so don't gate a listing on a scope.
 - **Skill ↔ SDK ↔ API alignment.** Every skill must be expressible as a sequence of SDK calls. If a skill diagrams a workflow that the SDK can't currently support end-to-end, file an issue on the SDK rather than papering over the gap.
 - **Variation naming.** Variations carry an optional plaintext `name` (unique per experiment). When referring to a variation in chat or in skill output, prefer the name; fall back to `v{variation_index}` only when name is unset. When *creating* variations (e.g. `prep-variation`, `fork-variation`), accept an optional `name` argument and pass it through to the SDK — don't synthesize one server-side without the user's input. Pattern:
