@@ -1,12 +1,19 @@
 name: skills-e2e
 
 # Per the design in runes/chronicle/designs/third-party-agent-flow.md:
-# - lint runs on every push (cheap, no secrets);
+# - lint runs on PRs and on pushes to main (cheap, no secrets);
 # - the full E2E runs on PRs into main, driving the skills against the deployed
 #   ci instance with a headless Claude Code agent that runs its OWN tiny CPU
 #   training (no Menlo Park worker — the agent owns the training).
+#
+# push is deliberately limited to main: a bare `push` trigger gave every PR
+# head TWO check runs per job name (push event + pull_request event), which
+# made the ruleset's required contexts (`lint`, `e2e`) resolve ambiguously —
+# and the push-event `e2e` always reports *skipped*, which GitHub counts as
+# satisfying a required check. One event per PR SHA keeps the gate honest.
 on:
   push:
+    branches: [main]
   pull_request:
     branches: [main]
 

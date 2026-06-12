@@ -24,14 +24,19 @@ import sys
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 SKILLS_DIR = ROOT / "skills"
 
-# (pattern, why) — substring match, case-sensitive where it matters.
-FORBIDDEN: list[tuple[str, str]] = [
-    ("active_org", "ambient active-scope override was retired; org is an explicit request field"),
-    ("X-Chronicle-Active-Owner", "the active-owner header was retired (require_active_scope removed)"),
-    ("session_search:read", "capability pseudo-actions were removed; searching is plain read"),
-    ("report_writes:write", "capability pseudo-actions were removed; use a type-qualified write"),
-    ("default org", "per-key 'default org' was abandoned; name the org on the call"),
-    ("default_scope", "per-key default_scope was abandoned"),
+# (pattern, why) — regex per line, case-sensitive where it matters. Patterns
+# are word-bounded where a *sanctioned* phrase shares a prefix with a retired
+# one: the recorded `organization_id:` in ~/.methodic/config.yaml is
+# legitimately described as a "default organization" (README "Organization
+# scope" convention), and must not trip the rule for the retired per-key
+# "default org".
+FORBIDDEN: list[tuple[re.Pattern[str], str]] = [
+    (re.compile(r"active_org"), "ambient active-scope override was retired; org is an explicit request field"),
+    (re.compile(r"X-Chronicle-Active-Owner"), "the active-owner header was retired (require_active_scope removed)"),
+    (re.compile(r"session_search:read"), "capability pseudo-actions were removed; searching is plain read"),
+    (re.compile(r"report_writes:write"), "capability pseudo-actions were removed; use a type-qualified write"),
+    (re.compile(r"\bdefault org\b"), "per-key 'default org' was abandoned; name the org on the call (the recorded config.yaml organization_id is the one sanctioned default)"),
+    (re.compile(r"default_scope"), "per-key default_scope was abandoned"),
 ]
 
 # Scan only the SKILL.md files for stale surface — these are what an agent
@@ -61,10 +66,10 @@ def _check_frontmatter(skill_md: pathlib.Path, errors: list[str]) -> None:
 
 def _check_stale_surface(path: pathlib.Path, errors: list[str]) -> None:
     for i, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
-        for needle, why in FORBIDDEN:
-            if needle in line:
+        for pat, why in FORBIDDEN:
+            if pat.search(line):
                 errors.append(
-                    f"{path.relative_to(ROOT)}:{i}: stale API surface '{needle}' — {why}"
+                    f"{path.relative_to(ROOT)}:{i}: stale API surface '{pat.pattern}' — {why}"
                 )
 
 
