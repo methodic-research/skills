@@ -8,7 +8,8 @@ description: |
   findings", "document what we learned", "summarize this variation's
   results", "attach a takeaways report". The document is Markdown + LaTeX
   math ($…$) that the Methodic UI renders inline with MathJax, plus figures
-  uploaded as image assets and embedded by reference. It always includes an
+  uploaded as image assets (or interactive HTML diagrams as html assets)
+  and embedded by reference. It always includes an
   explicit "What didn't work" section — negative results are part of the
   record. This is the shared write-up path for both the synthesis flow and
   the variation flow. For creating the experiment + its hypothesis use
@@ -51,6 +52,12 @@ $$
 attached to the equations. Single-line `$$x$$` inside a sentence or table
 cell is fine.
 
+**The body is GitHub-flavored Markdown.** Tables, task lists, and
+strikethrough all render in the UI — use a table for ablation grids and
+metric comparisons instead of ASCII art. A ```` ```mermaid ```` fenced
+code block renders as a diagram (flowcharts, sequence/state diagrams) —
+prefer it for pipeline or architecture sketches.
+
 ## What the write-up must contain
 
 The agent drafts the body with these sections (Markdown headings):
@@ -71,7 +78,9 @@ The agent drafts the body with these sections (Markdown headings):
    with one line on why it matters). Optional.
 5. **Figures** — loss curves, comparisons, ablation plots, embedded as
    `![alt](asset:<id>)` (step 1 of the workflow uploads them and returns the
-   ids).
+   ids). An interactive HTML diagram (a Plotly export, a self-contained d3
+   page) uploads as an `html` asset and embeds with the same reference —
+   the UI renders it in a sandboxed frame.
 
 ## Pulling the run's metrics (agent-side W&B) — for a distillation
 
@@ -124,8 +133,9 @@ provisioned one. Cite the real `summary` values in "What worked", and use
   summary. Both render the same way; `takeaways_report` is the type the
   conclude gate recognizes.
 - **`title`** — short human title for the document.
-- **`figures`** (optional) — local image file paths to upload and embed
-  (`.png`, `.jpg`/`.jpeg`, `.svg`, `.webp` only).
+- **`figures`** (optional) — local figure file paths to upload and embed
+  (`.png`, `.jpg`/`.jpeg`, `.svg`, `.webp` — or `.html` for a
+  self-contained interactive diagram).
 - **`outcome`** (variation-scoped only) — `success` or `failure_rca`,
   recorded on the asset so failure write-ups are findable as such.
 
@@ -141,25 +151,27 @@ output_of = {"experiment_id": experiment_id}
 if variation is not None:
     output_of["variation"] = variation
 
-# 1. Upload figures as `image` assets and collect their ids for embedding.
+# 1. Upload figures as `image` assets (`html` for an interactive diagram)
+#    and collect their ids for embedding.
 #    Binaries go through the presigned-upload path: register → PUT → finalize.
 #    A single file still goes in `components=[name]` — that's the SDK shape;
-#    Chronicle resolves a lone component to one image when it's embedded.
-def _image_content_type(p: Path) -> str:
+#    Chronicle resolves a lone component to one figure when it's embedded.
+def _figure_content_type(p: Path) -> str:
     return {
         ".png": "image/png",
         ".jpg": "image/jpeg",
         ".jpeg": "image/jpeg",
         ".svg": "image/svg+xml",
         ".webp": "image/webp",
-    }[p.suffix.lower()]  # KeyError → unsupported type; only static images embed
+        ".html": "text/html",  # interactive diagram → sandboxed frame in the UI
+    }[p.suffix.lower()]  # KeyError → unsupported type; only embeddable figures upload
 
 figure_ids = {}  # local filename -> asset_id
 for fig in (figures or []):
     p = Path(fig)
-    ctype = _image_content_type(p)
+    ctype = _figure_content_type(p)
     info = chronicle.assets.create_with_presigned(
-        asset_type="image",
+        asset_type="html" if ctype == "text/html" else "image",
         name=p.name,
         components=[p.name],
         content_type=ctype,
@@ -217,9 +229,9 @@ Tell the user:
 
 - **`create_with_presigned` / `create_inline` 403** — the caller lacks
   `Write` on the experiment. Surface the message verbatim.
-- **Unsupported image type** (`_image_content_type` KeyError) — only
-  png/jpeg/svg/webp embed. Convert the figure or drop it; don't upload an
-  arbitrary binary as an `image`.
+- **Unsupported figure type** (`_figure_content_type` KeyError) — only
+  png/jpeg/svg/webp (and html for interactive diagrams) embed. Convert the
+  figure or drop it; don't upload an arbitrary binary as an `image`.
 - **Empty "What didn't work"** — do not silently omit the section. State
   there were no negative results, so the absence is a recorded choice, not a
   gap.

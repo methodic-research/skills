@@ -150,6 +150,11 @@ Tell the user:
 - **Wrong asset type for a report** — datasets are binary inputs. A written
   findings/takeaways document is a *report* — use chronicle-write-report, not
   this skill.
+- **MCP `upload_asset` error "must declare its owning scope"** — an unlinked
+  upload (`link: "none"`) needs `scope: "user"` or `scope: "organization"` +
+  `organization_id`. Prefer linking as an input at upload time; fall back to
+  an explicit scope + `chronicle.link_asset` later only when the target
+  experiment/variation doesn't exist yet.
 
 ## MCP-native agents
 
@@ -161,9 +166,40 @@ provenance for an existing dataset's components. Multi-file / sharded datasets
 are this skill's job — the SDK splits a directory into components, which the
 one-shot MCP tools deliberately don't.
 
+**A dataset is an INPUT — always pass `link: "input"`.** Inputs are what the
+experiment/variation *consumes* (datasets, reference fields, weights);
+outputs are artifacts a *run produced*. A dataset uploaded with
+`link: "output"` lands on the wrong side of the experiment record (the
+Outputs tab) and corrupts lineage. Concretely:
+
+- **Variation-scoped dataset** → `chronicle.upload_asset(..., link: "input",
+  variation: <idx>)`. No ACL propagation (workers read it via the
+  experiment's containment).
+- **Experiment-shared dataset** → omit `variation`; experiment-level input
+  links propagate the experiment's reader ACLs (disable with
+  `propagate_acl: false` for a sensitive dataset).
+- **Order matters**: inputs freeze at commit. Upload + link *before*
+  committing the variation/experiment; after commit the input link is
+  refused (the freeze is the point — add a new open variation instead).
+- **Existing asset** (uploaded earlier with `link: "none"`, or reused from a
+  parent experiment) → `chronicle.link_asset(experiment_id, asset_id,
+  link: "input", variation?)`. Same freeze + invalidation gates as REST.
+- **Proposing a variation around a dataset** →
+  `chronicle.propose_variation(..., input_asset_ids: [<asset_id>])` links it
+  as a variation input at creation time; upload the bytes first.
+- **Unlinked upload** (`link: "none"`, the default) requires an explicit
+  owning scope so the asset isn't orphaned: `scope: "user"` for personal, or
+  `scope: "organization"` + `organization_id` (resolve via
+  `chronicle.list_scopes`; optional `visibility`, org-wide by default in an
+  org context).
+
 ## Requires
 
 - `pip install methodic-research` (≥0.9 — the `chronicle.datasets` namespace)
 - `CHRONICLE_API_KEY` + `CHRONICLE_SERVER_URL` exported (or `methodic auth
   login` already done)
+- Optional: a default organization via `organization_id:` in
+  `~/.methodic/config.yaml` (or `$CHRONICLE_ORGANIZATION_ID`) — dataset
+  creates that omit `organization_id` then attribute to that org; pass
+  `methodic.PERSONAL` to force a personal-scope upload.
 - No `git` — this skill moves bytes via the API; no repo checkout needed.
