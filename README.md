@@ -1,8 +1,10 @@
 # methodic-skills
 
+[![skills-e2e](https://github.com/methodic-research/methodic-skills/actions/workflows/skills-e2e.yml/badge.svg?branch=main)](https://github.com/methodic-research/methodic-skills/actions/workflows/skills-e2e.yml)
+
 Claude Code plugin: skills for working with the [Chronicle](https://docs.methodiclabs.ai) experiment platform.
 
-This repo is a Claude Code marketplace containing one plugin (`chronicle`). Backend lives in the `methodic-research/methodic` monorepo (private); skills live here so they can be public-facing without exposing the rest.
+This repo is a Claude Code marketplace containing one plugin (`methodic`). Backend lives in the `methodic-research/methodic` monorepo (private); skills live here so they can be public-facing without exposing the rest.
 
 ## What's inside
 
