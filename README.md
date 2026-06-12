@@ -37,15 +37,15 @@ Every skill is a thin orchestration layer over the [`methodic-research`](https:/
 > is **not** enough. Two steps:
 >
 > ```bash
-> # 1. In your shell: install the SDK and point it at your Chronicle + key.
-> pip install methodic-research && \
->   export CHRONICLE_SERVER_URL="https://api.methodiclabs.ai" && \
->   export CHRONICLE_API_KEY="sk_user_..."
+> # 1. In your shell: install the SDK, then paste the one-line setup command
+> #    the Methodic UI shows when you create an API key. It looks like:
+> pip install methodic-research
+> mkdir -p ~/.methodic && echo 'api_key: sk_user_...' > ~/.methodic/credentials.yaml && chmod 600 ~/.methodic/credentials.yaml
 > ```
 > ```text
 > # 2. Inside Claude Code: add the marketplace and install the plugin.
 > /plugin marketplace add methodic-research/methodic-skills
-> /plugin install chronicle@methodic-skills
+> /plugin install methodic
 > ```
 >
 > Step 1 is the easy-to-miss one: without `methodic-research` importable in the
@@ -61,11 +61,32 @@ Every skill is a thin orchestration layer over the [`methodic-research`](https:/
    # …or, for local dev against the monorepo:
    pip install -e path/to/methodic/conductor
    ```
-3. **Chronicle credentials**, read by the SDK from the environment:
+3. **Chronicle credentials** — one paste, no environment variables. Creating
+   an API key in the Methodic UI shows a one-line setup command; paste it into
+   your terminal once and every skill is configured. It writes the standard
+   `~/.methodic` client config that `Chronicle.from_env()` reads:
+
    ```bash
-   export CHRONICLE_SERVER_URL="https://api.methodiclabs.ai"   # your Chronicle server
-   export CHRONICLE_API_KEY="sk_user_..."                      # your API key
+   # Key created in your personal context:
+   mkdir -p ~/.methodic && echo 'api_key: sk_user_...' > ~/.methodic/credentials.yaml && chmod 600 ~/.methodic/credentials.yaml
+
+   # Key created in an organization context — additionally records that org:
+   mkdir -p ~/.methodic && echo 'organization_id: <org-principal-id>' > ~/.methodic/config.yaml && echo 'api_key: sk_user_...' > ~/.methodic/credentials.yaml && chmod 600 ~/.methodic/credentials.yaml
    ```
+
+   - `~/.methodic/credentials.yaml` holds the secret on its own (`chmod 600`)
+     so it can be permissioned and rotated separately. Pasting a new key's
+     setup command overwrites it — rotation is the same one paste.
+   - `~/.methodic/config.yaml` stays absent for personal keys: the defaults
+     are already right (`server_url` falls back to the hosted API, so the
+     setup command never sets it). A key created in an organization context
+     records `organization_id:` here — the default organization skills name
+     on org-scoped operations (experiment/dataset creates) when you don't
+     name one explicitly.
+   - Environment variables still win over the files when you need them (CI,
+     ephemeral shells, self-hosted servers): `CHRONICLE_API_KEY`,
+     `CHRONICLE_SERVER_URL`. Full resolution order in the
+     [auth guide](https://docs.methodiclabs.ai/guide/auth/).
 
 ### 1. Install the plugin (the skills)
 
@@ -73,11 +94,11 @@ Every skill is a thin orchestration layer over the [`methodic-research`](https:/
 # Add the marketplace
 /plugin marketplace add methodic-research/methodic-skills
 
-# Install the chronicle plugin
-/plugin install chronicle@methodic-skills
+# Install the methodic plugin
+/plugin install methodic
 ```
 
-That's it — the skills auto-trigger by intent ("survey the literature on …", "propose an experiment for …", "make a variation that …"). Pull new versions later with `/plugin marketplace update methodic-skills`.
+That's it — the skills auto-trigger by intent ("survey the literature on …", "propose an experiment for …", "make a variation that …"). Pull new versions later with `/plugin marketplace update methodic`.
 
 > **Repo access.** `/plugin marketplace add` uses your existing git credentials, so this already works for anyone with access to `methodic-research/methodic-skills`. To make it installable by *anyone*, the repo must be **public** — see [Publishing](#publishing). The `marketplace.json` + `plugin.json` are already in place.
 
@@ -97,7 +118,7 @@ The skills run on the SDK alone, but Chronicle also hosts an **MCP server** (`/v
 }
 ```
 
-(or `claude mcp add`). The tools must be deployed on your Chronicle server — they ship with `chronicle-server`.
+(or `claude mcp add`). Use the same API key the setup command wrote to `~/.methodic/credentials.yaml`. The tools must be deployed on your Chronicle server — they ship with `chronicle-server`.
 
 ### 3. Literature search (external MCP)
 
@@ -110,9 +131,9 @@ To give a whole team a one-trust setup, commit a `.claude/settings.json` to the 
 ```json
 {
   "extraKnownMarketplaces": {
-    "methodic-skills": { "source": { "source": "github", "repo": "methodic-research/methodic-skills" } }
+    "methodic": { "source": { "source": "github", "repo": "methodic-research/methodic-skills" } }
   },
-  "enabledPlugins": { "chronicle@methodic-skills": true }
+  "enabledPlugins": { "methodic@methodic": true }
 }
 ```
 
@@ -121,8 +142,8 @@ To give a whole team a one-trust setup, commit a `.claude/settings.json` to the 
 To make the plugin easily installable by users:
 
 1. **Make the repo accessible.** `/plugin marketplace add methodic-research/methodic-skills` resolves with the user's git credentials, so a **public** repo is installable by anyone; a private repo only by those with access. *(This is the current gate — the repo is private while the SDK + git-integration backend stabilize.)*
-2. **Manifests stay correct.** `.claude-plugin/marketplace.json` (the `chronicle` plugin entry) and `.claude-plugin/plugin.json` are already in place; skills are auto-discovered from `skills/<name>/SKILL.md` — nothing else to register.
-3. **Versioning drives updates.** `plugin.json`'s `version` (currently `0.1.0`) is the release knob: bump it to publish a new version (users get it via `/plugin marketplace update`). Omit `version` instead to treat every push as a new version during active development.
+2. **Manifests stay correct.** `.claude-plugin/marketplace.json` (the `methodic` plugin entry) and `.claude-plugin/plugin.json` are already in place; skills are auto-discovered from `skills/<name>/SKILL.md` — nothing else to register.
+3. **Versioning drives updates.** `plugin.json`'s `version` (currently `0.3.0`) is the release knob: bump it to publish a new version (users get it via `/plugin marketplace update`). Omit `version` instead to treat every push as a new version during active development.
 4. Users then run the two commands in [step 1](#1-install-the-plugin-the-skills).
 
 ## Local development
@@ -148,8 +169,8 @@ claude --plugin-dir ./methodic-skills
 
 - **One skill per user-visible verb.** Keep skills small and named after what the user is trying to do, not after the API endpoint they hit.
 - **Skills depend on `methodic-research`.** Skills assume `methodic` is importable in the user's Python environment. Skills surface a clear "install methodic-research first" message if the import fails.
-- **No secrets in skills.** Auth tokens come from `methodic`'s standard config (env var `CHRONICLE_API_KEY` or `~/.config/methodic/credentials`). Skills never prompt for raw API keys.
-- **Organization scope is explicit, not ambient.** An operation that belongs to an org names it on the request — the org-bearing field on the call (e.g. an experiment's `organization_id`); omit it for personal work. There is **no** ambient "active scope," per-request `X-Chronicle-Active-Owner` header, or per-key "default org" to set — that machinery was removed. List endpoints return everything your key can read; narrowing the view to a single org is the caller's/UI's concern, not a required parameter — so don't gate a listing on a scope. (The per-operation SDK surface for naming an org is being finalized alongside the backend's org-on-request rework; if a skill needs it before it lands, file an SDK issue per the next bullet rather than reintroducing an `active_org`/header workaround.)
+- **No secrets in skills.** Auth tokens come from `methodic`'s standard config (env var `CHRONICLE_API_KEY` or `~/.methodic/credentials.yaml`). Skills never prompt for raw API keys, and never read `credentials.yaml` into context.
+- **Organization scope is explicit, with a recorded default.** An operation that belongs to an org names it on the request — the org-bearing field on the call (e.g. an experiment's `organization_id`); omit it for personal work. There is no ambient "active scope" to set on the client. The one allowed default: the API-key setup command records `organization_id:` in `~/.methodic/config.yaml` when the key was created in an organization context. When the user doesn't name an org, fill the org-bearing field from that recorded value and say which org was used in the output; an org the user names explicitly always wins. Read the default from `config.yaml` only — never `credentials.yaml`. List endpoints return everything your key can read; narrowing the view to a single org is the caller's/UI's concern, not a required parameter — so don't gate a listing on a scope.
 - **Skill ↔ SDK ↔ API alignment.** Every skill must be expressible as a sequence of SDK calls. If a skill diagrams a workflow that the SDK can't currently support end-to-end, file an issue on the SDK rather than papering over the gap.
 - **Variation naming.** Variations carry an optional plaintext `name` (unique per experiment). When referring to a variation in chat or in skill output, prefer the name; fall back to `v{variation_index}` only when name is unset. When *creating* variations (e.g. `prep-variation`, `fork-variation`), accept an optional `name` argument and pass it through to the SDK — don't synthesize one server-side without the user's input. Pattern:
   ```python
