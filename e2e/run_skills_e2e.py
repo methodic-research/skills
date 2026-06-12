@@ -48,7 +48,10 @@ RUN_ID = uuid.uuid4().hex[:8]
 SLUG_PREFIX = "skills-e2e"  # greppable for an orphan reaper
 CREATE_WAIT_SECS = int(os.environ.get("E2E_CREATE_WAIT_SECS", "600"))  # propose + commit 2 variations
 RUN_WAIT_SECS = int(os.environ.get("E2E_RUN_WAIT_SECS", "900"))  # agent runs train + marks runs
-SEARCH_WAIT_SECS = int(os.environ.get("E2E_SEARCH_WAIT_SECS", "180"))  # index propagation
+# Index propagation. Doubled from 180: assert_searchable timing out on Vertex
+# latency is a flake that forces a rerun of the whole (token-expensive) agent
+# flow, so buy the slack here rather than re-paying the CREATE/RUN/DISTILL turns.
+SEARCH_WAIT_SECS = int(os.environ.get("E2E_SEARCH_WAIT_SECS", "360"))
 
 # The two variations the agent commits + runs. The driver scopes its run-wait to
 # these names so the test does NOT depend on the agent's exact variation count —
