@@ -55,12 +55,7 @@ re-importing a batch.)
 ## Workflow
 
 ```python
-import hashlib
-from datetime import datetime, timezone
-from pathlib import Path
-
 from methodic import Chronicle
-from methodic.errors import ConflictError
 
 chronicle = Chronicle.from_env()  # CHRONICLE_SERVER_URL + CHRONICLE_API_KEY
 
@@ -68,47 +63,32 @@ chronicle = Chronicle.from_env()  # CHRONICLE_SERVER_URL + CHRONICLE_API_KEY
 orgs = [s for s in chronicle.me.scopes() if s.kind == "organization"]
 organization_id = ...  # match the user's org, or the recorded default
 
-# 2. Import each PDF: register (presigned), PUT, finalize.
-imported, duplicates, failed = [], [], []
-for path in sorted(pdf_paths):
-    digest = hashlib.sha256(path.read_bytes()).hexdigest()
-    try:
-        info = chronicle.assets.create_with_presigned(
-            asset_type="imported_report",
-            components=["report.pdf"],
-            name=path.stem,
-            content_type="application/pdf",
-            asset_config={
-                "sha256": digest,
-                "size_bytes": path.stat().st_size,
-                "source_filename": path.name,
-                "import": {
-                    "import_source": import_source,
-                    "imported_at": datetime.now(timezone.utc).isoformat(),
-                },
-            },
-            organization_id=organization_id,
-            team_id=team_id,            # optional
-            visibility=visibility,      # omit for scope_default (org-wide)
-        )
-        chronicle.assets.upload_component(
-            info.upload_urls["report.pdf"], path, "application/pdf"
-        )
-        chronicle.assets.finalize(info.asset_id)
-        imported.append((path.name, info.asset_id))
-    except ConflictError:               # 409 — same sha256 already in this org
-        duplicates.append(path.name)
-    except Exception as err:            # 403/404/size cap — keep going, report at end
-        failed.append((path.name, str(err)))
+# 2. One call: per PDF, registers an imported_report with sha256/size
+#    provenance (per-org dedup), PUTs via presigned URL, then a single
+#    bulk-finalize verifies the uploads, flips the batch ready, and
+#    enqueues the server-side extraction job (text layer or math OCR).
+summary = chronicle.imports.research_reports(
+    pdf_paths,                       # files and/or directories (*.pdf)
+    organization_id=organization_id,
+    team_id=team_id,                 # optional
+    visibility=visibility,           # omit for scope_default (org-wide)
+    import_source="acme_reading_list_2026_06",   # the audit-trail batch label
+)
 
-print(f"imported {len(imported)}, already-present {len(duplicates)}, "
-      f"failed {len(failed)} into org {organization_id}")
+print(f"imported {len(summary.imported)}, already-present {len(summary.duplicates)}, "
+      f"failed {len(summary.failed)} into org {summary.organization_id}; "
+      f"extraction job: {summary.extraction_job_id}")
 ```
 
-For batches beyond a few hundred files, the streaming bulk path (Scribe
-`assets:bulk-presign` + Chronicle `assets:bulk-import`, per the design doc)
-replaces this loop once it ships; the per-file loop above is correct at any
-size, just chattier.
+On SDK versions without `chronicle.imports` (<0.14), the same end state
+comes from looping the primitives per file — `assets.create_with_presigned(
+asset_type="imported_report", components=["report.pdf"], asset_config={"sha256":
+..., "size_bytes": ..., "source_filename": ...}, organization_id=...)` →
+`assets.upload_component(...)` → `assets.finalize(...)` — catching
+`ConflictError` as already-present; extraction then waits for an operator
+re-enqueue instead of starting automatically. For corpus-scale batches the
+streaming `assets/bulk-import` NDJSON endpoint (see the design doc) registers
+rows in one call; the SDK switches to it transparently in a later release.
 
 ## After the skill completes
 
@@ -116,7 +96,9 @@ Tell the user:
 
 1. Counts and ids — imported / already-present (dedup) / failed — and **which
    organization** (and team) now owns them.
-2. What happens next, server-side and async: an extraction job produces
+2. The `extraction_job_id` from the summary — operators can watch or
+   re-enqueue it via the admin jobs surface. What happens next, server-side
+   and async: that job produces
    `extracted.md` for each PDF — born-digital PDFs from their text layer,
    image-only scans via math-capable OCR (equations preserved as LaTeX) —
    and search indexing follows (lazy cadence: searchable within ~a day;
@@ -159,8 +141,9 @@ whenever more than one file is involved.
 
 ## Requires
 
-- `pip install methodic-research` (≥0.13 — `assets.create_with_presigned` /
-  `upload_component` / `finalize`)
+- `pip install methodic-research` (≥0.14 — `chronicle.imports`; on ≥0.13
+  the per-file `assets.*` fallback above works, minus the automatic
+  extraction enqueue)
 - `CHRONICLE_API_KEY` exported (or `methodic auth login` already done)
 - Organization context: a default from `~/.methodic/config.yaml` /
   `$CHRONICLE_ORGANIZATION_ID`, or the user names the org explicitly
