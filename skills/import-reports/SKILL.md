@@ -98,11 +98,17 @@ Tell the user:
    organization** (and team) now owns them.
 2. The `extraction_job_id` from the summary — operators can watch or
    re-enqueue it via the admin jobs surface. What happens next, server-side
-   and async: that job produces
-   `extracted.md` for each PDF — born-digital PDFs from their text layer,
-   image-only scans via math-capable OCR (equations preserved as LaTeX) —
-   and search indexing follows (lazy cadence: searchable within ~a day;
-   scanned PDFs are only weakly searchable until their extraction lands).
+   and async: when the layout parser is configured (`pdf_import.docai`),
+   each PDF gets a **layout parse + derived views** — a browsable
+   `html/report.html`, a search-optimized `markdown/report.md`, and
+   section/object chunk shards that index as first-class search documents
+   under the org's read ACL; reliable tables also land as CSV/JSON
+   components. Tables and equations then get an enrichment pass (dual-model
+   annotation reconciled by `claude-fable-5`) with low-confidence objects
+   flagged for human review — triage those with **chronicle-review-imports**.
+   Without the layout parser, the flat fallback produces `extracted.md`
+   (text layer for born-digital PDFs; math-capable OCR for image-only
+   scans, equations preserved as LaTeX). Indexing follows either way.
 3. How to verify listing/search scoping:
    - org member: `chronicle.assets.list` scoped to the org
      (`GET /v1/assets?owner=<org-id>`) shows the new assets;
