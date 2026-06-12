@@ -1,6 +1,6 @@
 {
   "$schema": "https://code.claude.com/schemas/marketplace.json",
-  "name": "methodic-skills",
+  "name": "methodic",
   "description": "Methodic platform plugins for Claude Code \u2014 skills + (eventually) MCP server for working with Chronicle experiments.",
   "owner": {
     "name": "Methodic Labs",
@@ -8,7 +8,7 @@
   },
   "plugins": [
     {
-      "name": "chronicle",
+      "name": "methodic",
       "description": "Skills for working with Chronicle experiments \u2014 research surveys, hypothesis-driven experiment + variation generation, history/lineage search, prep/fork variations, lifecycle (delete open drafts, retract committed work, purge orphaned assets, move into an org), status.",
       "category": "research",
       "tags": [
