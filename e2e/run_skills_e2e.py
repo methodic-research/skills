@@ -467,15 +467,28 @@ def assert_report_pulled_wandb(report: dict) -> None:
 
 def assert_searchable(jwt: str, exp_id: str) -> None:
     """POST /search and poll until the report surfaces — the one assertion that
-    exercises the real Vertex push (indexing is eventually consistent). A `got
-    []`/timeout here is Vertex propagation latency, not a code regression."""
+    exercises the real Vertex push (indexing is eventually consistent).
+
+    The request must be rank-immune, not just patient: every e2e run leaves
+    more near-identical "damped ripple" docs in the ci index, so a generic
+    query + the default page_size=20 eventually can't surface the new report
+    no matter the timeout (`asset_types` at the TOP level is silently ignored
+    — SearchRequest only reads it nested under `filters`). Hence: the real
+    nested filter, a large page, and `experiment_context` so lineage boosting
+    floats this experiment's own docs. A timeout here is Vertex propagation
+    latency, not a code regression."""
     deadline = time.time() + SEARCH_WAIT_SECS
     last = "no hit"
     while time.time() < deadline:
         r = requests.post(
             f"{CI_URL}/search",
             headers={"Authorization": f"Bearer {jwt}"},
-            json={"query": "damped ripple hidden_dim takeaways", "asset_types": ["takeaways_report"]},
+            json={
+                "query": "damped ripple hidden_dim takeaways",
+                "filters": {"asset_types": ["takeaways_report"]},
+                "experiment_context": [exp_id],
+                "page_size": 50,
+            },
             timeout=60,
         )
         if r.ok:
