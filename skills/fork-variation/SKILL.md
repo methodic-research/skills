@@ -57,6 +57,12 @@ var = chronicle.variations.create(
     config_yaml=source.config_yaml,
     description=description or f"forked from {source_handle}",
     name=name,  # optional plaintext handle for the fork; pass None to skip
+    # What this fork sets out to validate differently from the source, tied
+    # to the eval metric — the fork's pre-registration. Prompt the user if
+    # they didn't state one; it can be refined later with
+    # chronicle.variations.update(...) while the fork is still open. Required
+    # to commit without the explicit commit_without_hypothesis override.
+    hypothesis=hypothesis,
 )
 branch = f"variation/{var.variation}"
 
