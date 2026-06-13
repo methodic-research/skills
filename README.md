@@ -18,49 +18,60 @@ This repo is a Claude Code marketplace containing one plugin (`methodic`).
 
 ## Getting started
 
-> **Quick install (TL;DR).** The skills require the `methodic` SDK — they
-> orchestrate it and never make raw HTTP calls — so installing the plugin alone
-> is **not** enough. Two steps:
+> **Quick start (TL;DR).** The default path is UI first, then the plugin:
+> create an account + API key in the Methodic UI, paste its one-line setup
+> command (plus one `pip install`) in your terminal, install the plugin from
+> the marketplace — and you're working.
 >
 > ```bash
-> # 1. In your shell: install the SDK, then paste the one-line setup command
-> #    the Methodic UI shows when you create an API key. It looks like:
-> pip install methodic-research
+> # 1. UI: sign up at https://methodiclabs.ai/chronicle/signup, open
+> #    "API keys" in the sidebar, create a key, and paste the one-line
+> #    setup command the UI shows. It looks like:
 > mkdir -p ~/.methodic && echo 'api_key: sk_user_...' > ~/.methodic/credentials.yaml && chmod 600 ~/.methodic/credentials.yaml
+> # …and install the SDK the skills orchestrate:
+> pip install methodic-research
 > ```
 > ```text
-> # 2. Inside Claude Code: add the marketplace and install the plugin.
+> # 2. Claude Code: install the plugin from the marketplace.
 > /plugin marketplace add methodic-research/skills
 > /plugin install methodic
 > ```
 >
-> Step 1 is the easy-to-miss one: without `methodic-research` importable in the
-> same Python environment Claude Code shells out to, every skill ImportErrors on
-> `from methodic import Chronicle` and does nothing. Details below.
+> That's the whole default path — once the plugin is installed you can start
+> immediately ("survey the literature on …", "propose an experiment for …").
+> The easy-to-miss line is the `pip install`: the skills orchestrate the
+> `methodic` SDK and never make raw HTTP calls, so without `methodic-research`
+> importable in the Python environment Claude Code shells out to, every skill
+> ImportErrors on `from methodic import Chronicle` and does nothing. Details
+> below.
 
-> **Heads-up for agents (initial bootstrap).** Creating the API key happens in
-> the Methodic UI, logged in as the user — there is no API an agent can call
-> to bootstrap credentials it doesn't yet have (no key, no JWT → no access).
-> If `~/.methodic/credentials.yaml` is missing, ask the user to create a key
-> in the UI and run the one-line setup command it shows in **their** terminal,
-> then retry. Don't ask for the raw key in chat. The files that command writes
-> are the same credentials everything here reads: the skills/SDK, the MCP
-> `Authorization` header, and direct REST calls.
+> **Heads-up for agents (initial bootstrap).** Creating the account and API
+> key happens in the Methodic UI, logged in as the user — there is no API an
+> agent can call to bootstrap credentials it doesn't yet have (no key, no JWT
+> → no access). If `~/.methodic/credentials.yaml` is missing, ask the user to
+> do step 1 below — create a key in the UI and run the one-line setup command
+> it shows in **their** terminal — then retry. Don't ask for the raw key in
+> chat. The files that command writes are the same credentials everything
+> here reads: the skills/SDK, the MCP `Authorization` header, and direct REST
+> calls.
 
-### Prerequisites
+### 1. Create an account and API key (the Methodic UI)
 
-1. **Claude Code** — the plugin host.
-2. **The methodic SDK** — skills orchestrate it (they never make raw HTTP calls):
-   ```bash
-   pip install methodic-research
-   ```
-3. **Chronicle credentials** — one paste, no environment variables, and the
-   one step only you can do (initial bootstrap — an agent can't do it for
-   you; see the note above). Creating an API key in the Methodic UI shows a
-   one-line setup command; paste it into your terminal once and everything is
-   configured — skills/SDK, MCP, and direct REST all read the same files. It
-   writes the standard `~/.methodic` client config that `Chronicle.from_env()`
-   reads:
+Everything starts in the Methodic UI — the one step only you can do (initial
+bootstrap — an agent can't do it for you; see the note above):
+
+1. **Create an account** at
+   [methodiclabs.ai/chronicle/signup](https://methodiclabs.ai/chronicle/signup)
+   (or sign in if you already have one).
+2. **Create an API key**: open **API keys** in the sidebar and create one.
+   If you work in an organization, create the key in that organization's
+   context — the setup command then records the org as your default; create
+   it in your personal context otherwise.
+3. **Paste the one-line setup command** the UI shows into your terminal —
+   one paste, no environment variables. It writes the standard `~/.methodic`
+   client config that `Chronicle.from_env()` reads, and everything here uses
+   the same files: skills/SDK, the MCP `Authorization` header, and direct
+   REST calls. It looks like:
 
    ```bash
    # Key created in your personal context:
@@ -70,33 +81,42 @@ This repo is a Claude Code marketplace containing one plugin (`methodic`).
    mkdir -p ~/.methodic && echo 'organization_id: <org-principal-id>' > ~/.methodic/config.yaml && echo 'api_key: sk_user_...' > ~/.methodic/credentials.yaml && chmod 600 ~/.methodic/credentials.yaml
    ```
 
-   - `~/.methodic/credentials.yaml` holds the secret on its own (`chmod 600`)
-     so it can be permissioned and rotated separately. Pasting a new key's
-     setup command overwrites it — rotation is the same one paste.
-   - `~/.methodic/config.yaml` stays absent for personal keys: the defaults
-     are already right (`server_url` falls back to the hosted API, so the
-     setup command never sets it). A key created in an organization context
-     records `organization_id:` here — the default organization skills name
-     on org-scoped operations (experiment/dataset creates) when you don't
-     name one explicitly.
-   - Environment variables still win over the files when you need them (CI,
-     ephemeral shells, self-hosted servers): `CHRONICLE_API_KEY`,
-     `CHRONICLE_SERVER_URL`. Full resolution order in the
-     [auth guide](https://docs.methodiclabs.ai/guide/auth/).
+4. **Install the SDK** in the same terminal — the skills orchestrate it (they
+   never make raw HTTP calls), so it must be importable in the Python
+   environment Claude Code shells out to:
 
-### 1. Install the plugin (the skills)
+   ```bash
+   pip install methodic-research
+   ```
 
-```bash
-# Add the marketplace
+What the setup command wrote:
+
+- `~/.methodic/credentials.yaml` holds the secret on its own (`chmod 600`)
+  so it can be permissioned and rotated separately. Pasting a new key's
+  setup command overwrites it — rotation is the same one paste.
+- `~/.methodic/config.yaml` stays absent for personal keys: the defaults
+  are already right (`server_url` falls back to the hosted API, so the
+  setup command never sets it). A key created in an organization context
+  records `organization_id:` here — the default organization skills name
+  on org-scoped operations (experiment/dataset creates) when you don't
+  name one explicitly.
+- Environment variables still win over the files when you need them (CI,
+  ephemeral shells, self-hosted servers): `CHRONICLE_API_KEY`,
+  `CHRONICLE_SERVER_URL`. Full resolution order in the
+  [auth guide](https://docs.methodiclabs.ai/guide/auth/).
+
+### 2. Install the plugin (the skills)
+
+Inside Claude Code:
+
+```text
 /plugin marketplace add methodic-research/skills
-
-# Install the methodic plugin
 /plugin install methodic
 ```
 
-That's it — the skills auto-trigger by intent ("survey the literature on …", "propose an experiment for …", "make a variation that …"). Pull new versions later with `/plugin marketplace update methodic`.
+That's it — with step 1 done, you can start immediately: the skills auto-trigger by intent ("survey the literature on …", "propose an experiment for …", "make a variation that …"). Pull new versions later with `/plugin marketplace update methodic`.
 
-### 2. Wire the Chronicle MCP tools (recommended)
+### 3. Wire the Chronicle MCP tools (recommended)
 
 The skills run on the SDK alone, but Chronicle also hosts an **MCP server** (`/v1/mcp/messages`, served by `chronicle-server`) exposing native `chronicle.*` tools — internal search, experiment create/read/commit, move/delete/retract lifecycle (`chronicle.move_experiment`, `chronicle.delete_experiment` — creator-guarded, `chronicle.retract_experiment`), report-write, image + generic asset (dataset) upload + ACL management + orphan hard-delete (`chronicle.delete_asset` — creator-guarded, unlinked assets only), research prompts, session search. Point Claude Code at it with a project-scoped `.mcp.json` at your repo root:
 
@@ -114,7 +134,7 @@ The skills run on the SDK alone, but Chronicle also hosts an **MCP server** (`/v
 
 (or `claude mcp add`). Use the same API key the setup command wrote to `~/.methodic/credentials.yaml`. The tools must be deployed on your Chronicle server — they ship with `chronicle-server`.
 
-### 3. Literature search (external MCP)
+### 4. Literature search (external MCP)
 
 Literature/arxiv search is **not** in Chronicle — Chronicle search is internal-only (experiment history + research docs). The `chronicle-research-survey` skill pulls papers from a separate **external literature MCP** (e.g. Paperclip); add that server the same way (`.mcp.json` / `claude mcp add`) to enable the literature leg. Without it, the survey runs Chronicle-internal only.
 
@@ -167,7 +187,7 @@ How releases reach users:
 1. **The repo is public.** `/plugin marketplace add methodic-research/skills` resolves with the user's git credentials, so anyone can add the marketplace and install — no extra access setup.
 2. **Manifests stay correct.** `.claude-plugin/marketplace.json` (the `methodic` plugin entry) and `.claude-plugin/plugin.json` are already in place; skills are auto-discovered from `skills/<name>/SKILL.md` — nothing else to register.
 3. **Versioning drives updates.** `plugin.json`'s `version` (currently `0.4.0`) is the release knob: bump it to publish a new version (users get it via `/plugin marketplace update`). Omit `version` instead to treat every push as a new version during active development.
-4. Users then run the two commands in [step 1](#1-install-the-plugin-the-skills).
+4. Users then run the two commands in [step 2](#2-install-the-plugin-the-skills).
 
 ## Local development
 
@@ -187,7 +207,7 @@ require that `from methodic import Chronicle` resolves.
 
 - **One skill per user-visible verb.** Keep skills small and named after what the user is trying to do, not after the API endpoint they hit.
 - **Skills depend on `methodic-research`.** Skills assume `methodic` is importable in the user's Python environment. Skills surface a clear "install methodic-research first" message if the import fails.
-- **No secrets in skills.** Auth tokens come from `methodic`'s standard config (env var `CHRONICLE_API_KEY` or `~/.methodic/credentials.yaml`). Skills never prompt for raw API keys, and never read `credentials.yaml` into context. If the config is missing entirely, stop and send the user to the Methodic UI's create-API-key flow (it prints the setup command that writes `~/.methodic`) — an agent has no credential or JWT to bootstrap with, so it cannot do this step on the user's behalf.
+- **No secrets in skills.** Auth tokens come from `methodic`'s standard config (env var `CHRONICLE_API_KEY` or `~/.methodic/credentials.yaml`). Skills never prompt for raw API keys, and never read `credentials.yaml` into context. If the config is missing entirely, stop and send the user to the Methodic UI's create-API-key flow — account signup at [methodiclabs.ai/chronicle/signup](https://methodiclabs.ai/chronicle/signup), then **API keys** in the sidebar; the UI prints the setup command that writes `~/.methodic` — an agent has no credential or JWT to bootstrap with, so it cannot do this step on the user's behalf.
 - **Organization scope is explicit, with a recorded default.** An operation that belongs to an org names it on the request — the org-bearing field on the call (e.g. an experiment's `organization_id`); omit it for personal work. There is no ambient "active scope" to set on the client. The one allowed default: the API-key setup command records `organization_id:` in `~/.methodic/config.yaml` when the key was created in an organization context. When the user doesn't name an org, fill the org-bearing field from that recorded value and say which org was used in the output; an org the user names explicitly always wins. Read the default from `config.yaml` only — never `credentials.yaml`. List endpoints return everything your key can read; narrowing the view to a single org is the caller's/UI's concern, not a required parameter — so don't gate a listing on a scope.
 - **Skill ↔ SDK ↔ API alignment.** Every skill must be expressible as a sequence of SDK calls. If a skill diagrams a workflow that the SDK can't currently support end-to-end, file it with `methodic-feedback` (which auto-files a `gap` report to the private feedback endpoint and offers a public issue at end of turn) rather than papering over the gap.
 - **Gaps get reported, not papered over.** Any skill that hits a missing capability, wrong instruction, or confusing API behavior mid-task invokes `methodic-feedback` proactively — backend report at the moment of encounter, public-issue offer once the task has made maximum progress (immediately if blocking).
@@ -203,7 +223,7 @@ require that `from methodic import Chronicle` resolves.
 
 ## What this is not (yet)
 
-- **MCP config bundled into the plugin.** Chronicle now *has* an MCP server (`/v1/mcp/messages`, exposing `chronicle.*` tools) — see [Getting started](#2-wire-the-chronicle-mcp-tools-recommended) for wiring it today via `.mcp.json`. A candidate next step is declaring it directly in `plugin.json` (`mcpServers` + a `userConfig` prompt for the server URL + API key) so `/plugin install` also wires the endpoint in one step.
+- **MCP config bundled into the plugin.** Chronicle now *has* an MCP server (`/v1/mcp/messages`, exposing `chronicle.*` tools) — see [Getting started](#3-wire-the-chronicle-mcp-tools-recommended) for wiring it today via `.mcp.json`. A candidate next step is declaring it directly in `plugin.json` (`mcpServers` + a `userConfig` prompt for the server URL + API key) so `/plugin install` also wires the endpoint in one step.
 - **Cloud agents.** Cloud-hosted agents that prep variations without any local checkout are tracked separately; their design intentionally avoids needing these client-side skills.
 
 ## License
