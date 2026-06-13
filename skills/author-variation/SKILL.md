@@ -115,6 +115,12 @@ var = chronicle.variations.create(
     git_ref=branch,
     description=description,
     name=name,  # optional plaintext handle; pass None to skip
+    # The falsifiable hypothesis this variation validates, tied to the eval
+    # metric — derived from `change_request` (what you changed and why you
+    # expect it to move the metric). The variation's pre-registration; a
+    # variation with none can only be committed via the explicit
+    # commit_without_hypothesis override, so set it here.
+    hypothesis=hypothesis,
 )
 
 handle = var.name or f"v{var.variation}"

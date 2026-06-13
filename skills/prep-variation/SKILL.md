@@ -36,6 +36,15 @@ edit, and a corresponding open variation row in Chronicle.
   Prefer this over the integer index when later referring to the variation
   in chat. Prompt the user with a suggested name derived from `description`
   if they don't supply one; accept their reply (including a blank/skip).
+- **`hypothesis`** — the falsifiable hypothesis this variation validates,
+  tied to the eval metric (e.g. "widening attention raises eval/coherence
+  vs. v1"). This is the variation's pre-registration. Prompt for it if the
+  user didn't state one — a variation with no hypothesis can only be
+  committed via the explicit `commit_without_hypothesis` override, so it's
+  worth capturing up front. It can also be added/refined later with
+  `chronicle.variations.update(experiment_id, variation, hypothesis=...)`
+  while the variation is still open.
+- **`expected_outcome`** (optional) — the predicted result vs. baseline.
 
 ## Workflow
 
@@ -81,6 +90,13 @@ var = chronicle.variations.create(
     git_ref=branch,
     description=description,
     name=name,  # optional plaintext handle; pass None to skip
+    # The falsifiable hypothesis this variation validates, tied to the eval
+    # metric — the variation's pre-registration. A variation with no
+    # hypothesis can only be committed via the explicit
+    # commit_without_hypothesis override, so set it here (or later with
+    # chronicle.variations.update(...,  hypothesis=...) while still open).
+    hypothesis=hypothesis,
+    expected_outcome=expected_outcome,  # optional predicted result vs. baseline
 )
 
 # Refer to the variation by its name when set — it's how the user

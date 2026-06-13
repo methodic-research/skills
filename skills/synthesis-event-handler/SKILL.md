@@ -149,13 +149,24 @@ var = chronicle.variations.create(
         "doubling the model width to test whether the loss plateau "
         "in the takeaways_report is capacity-limited."
     ),
+    hypothesis=(
+        "Doubling model width raises eval/coherence vs. the v4 baseline — "
+        "the v4 plateau is capacity-limited, not data-limited."
+    ),
+    expected_outcome="+2-4% eval/coherence, no eval/loss regression.",
     name="v4-width-doubled",  # plaintext handle; unique per experiment
 )
 print(f"proposed variation {var.name or f'v{var.variation}'}")
 ```
 
-Mirror `chronicle-prep-variation`'s pattern: name the variation if
-you have a meaningful short handle; pass `None` if you don't.
+**Every variation you propose MUST carry a falsifiable `hypothesis`
+tied to the eval metric** (agent-flows.md §5.3) — it's the variation's
+pre-registration, recorded on the variation and surfaced in the UI
+next to the eventual `variation_report`. A variation with no hypothesis
+can only be committed via the explicit `commit_without_hypothesis`
+override, so always set it here. Add `expected_outcome` when you have a
+concrete prediction. Mirror `chronicle-prep-variation`'s pattern for
+`name`: a meaningful short handle if you have one, `None` otherwise.
 
 ## Failure modes
 
