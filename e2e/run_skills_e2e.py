@@ -465,18 +465,33 @@ def assert_report_pulled_wandb(report: dict) -> None:
     print("  takeaways_report looks distilled (pending/review-gated).")
 
 
-def assert_searchable(jwt: str, exp_id: str) -> None:
-    """POST /search and poll until the report surfaces — the one assertion that
-    exercises the real Vertex push (indexing is eventually consistent).
+def assert_searchable(jwt: str, exp_id: str, report: dict) -> None:
+    """POST /search and poll until *this experiment's* takeaways_report surfaces
+    — the one assertion that exercises the real Vertex push.
 
-    The request must be rank-immune, not just patient: every e2e run leaves
-    more near-identical "damped ripple" docs in the ci index, so a generic
-    query + the default page_size=20 eventually can't surface the new report
-    no matter the timeout (`asset_types` at the TOP level is silently ignored
-    — SearchRequest only reads it nested under `filters`). Hence: the real
-    nested filter, a large page, and `experiment_context` so lineage boosting
-    floats this experiment's own docs. A timeout here is Vertex propagation
-    latency, not a code regression."""
+    Two things make this robust instead of flaky:
+
+    1. **Rank-immune request.** `asset_types` at the TOP level of the body is
+       silently ignored (SearchRequest only reads it nested under `filters`),
+       so the old request ran unfiltered against the default page_size=20 — the
+       experiment's report had to out-rank every other "damped ripple" doc in
+       the ci index for 20 slots, which no timeout fixes. We send the real
+       nested filter, page_size 50, and `experiment_context` so lineage
+       boosting floats this experiment's own docs.
+
+    2. **Identity match, not substring.** We match the hit's `document_id`
+       against the takeaways asset's own id (the report dict from
+       `wait_for_distillation`), not `exp_id in json.dumps(hit)`. That is the
+       precise "is *my* doc indexed?" question and can't be satisfied by a
+       sibling doc that merely mentions the experiment.
+
+    A timeout here is a real signal: the takeaways_report was created
+    (state visible to the API) but its Vertex document never landed. Measured
+    on ci (2026-06-13): an inline `POST /assets` takeaways indexes in ~12s,
+    but the agent/write-report path intermittently never indexes (a report
+    from a failed run was still absent 18h later, experiment un-retracted).
+    The diagnostic below says so explicitly rather than blaming propagation."""
+    doc_id = report.get("id")
     deadline = time.time() + SEARCH_WAIT_SECS
     last = "no hit"
     while time.time() < deadline:
@@ -493,14 +508,20 @@ def assert_searchable(jwt: str, exp_id: str) -> None:
         )
         if r.ok:
             hits = r.json().get("results", r.json()) if isinstance(r.json(), dict) else r.json()
-            if any(exp_id in json.dumps(h) for h in hits):
+            if any(h.get("document_id") == doc_id for h in hits):
                 print("  takeaways_report discoverable in search (real Vertex push).")
                 return
-            last = f"{len(hits)} hits, none for {exp_id}"
+            last = f"{len(hits)} takeaways hits, none with document_id={doc_id}"
         else:
             last = _dump("search", r)
         time.sleep(15)
-    raise Fail(f"takeaways_report not searchable within {SEARCH_WAIT_SECS}s; last: {last}")
+    raise Fail(
+        f"takeaways_report {doc_id} (state={report.get('state')!r}) not searchable "
+        f"within {SEARCH_WAIT_SECS}s; last: {last}. The asset exists via the API but "
+        f"its Vertex document never landed — this is the write-report indexing-push "
+        f"race, NOT propagation latency or a query/rank problem (the request is "
+        f"filtered + boosted + matched by document_id)."
+    )
 
 
 def cleanup(jwt: str, exp_id: str) -> None:
@@ -558,7 +579,7 @@ def main() -> int:
         distill(api_key, exp_id, log_dir)  # distill turn: write-report pulls W&B agent-side
         report = wait_for_distillation(jwt, exp_id)
         assert_report_pulled_wandb(report)
-        assert_searchable(jwt, exp_id)
+        assert_searchable(jwt, exp_id, report)
         print("\nPASS skills-e2e")
         return 0
     finally:
