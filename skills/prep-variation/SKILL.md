@@ -29,8 +29,12 @@ edit, and a corresponding open variation row in Chronicle.
   4. Prompt the user
 - **`from_variation`** (optional) — the parent variation index. Defaults to
   the latest committed variation if omitted.
-- **`description`** (optional) — a one-liner the user wants on the variation
-  card. Prompt if missing.
+- **`description`** — a concise one-line summary of what this variation is
+  about (what's different and why), shown in the variations list so a reader
+  gets the gist without opening it. Provide it: prompt the user, or derive a
+  short line from their intent. If omitted, Chronicle auto-generates one from
+  the hypothesis + config at commit (LLM, best-effort) — but an
+  agent-authored summary is better, so set it.
 - **`name`** (optional) — a short plaintext handle (`baseline`,
   `width-doubled`) for the new variation. Unique per experiment when set.
   Prefer this over the integer index when later referring to the variation
