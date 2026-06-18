@@ -26,7 +26,10 @@ stays SHA-pinned and untouched. On commit, Chronicle renames the branch to
   from. Required. If the user says "fork width-doubled," resolve that
   name → index via `chronicle.variations.find_by_name(experiment_id, …)`
   before passing to the SDK calls below.
-- **`description`** (optional) — one-liner for the new variation card.
+- **`description`** — a concise one-line summary of what this fork is about,
+  shown in the variations list. Provide it (what the fork changes vs the
+  source); if omitted, Chronicle auto-generates one at commit (LLM,
+  best-effort), but an agent-authored summary is better.
 - **`name`** (optional) — plaintext handle for the new fork
   (`baseline-with-larger-batch`). Unique per experiment when set. Prefer
   this over the integer index when referring to the fork in subsequent

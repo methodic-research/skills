@@ -44,8 +44,11 @@ the repo's "Operational LLM calls" note) — **not** a server LLM call and
 - **`change_request`** — the edit to apply, in the user's words ("double
   the width", "set lr to 1e-3", "swap dataset to ripple-large"). Required —
   this skill exists to apply it. Prompt if missing.
-- **`description`** (optional) — one-liner for the variation card. Default to
-  a short rendering of `change_request`; confirm with the user.
+- **`description`** — a concise one-line summary of what this variation is
+  about, shown in the variations list (the at-a-glance blurb). Default to a
+  short rendering of `change_request`; confirm with the user. If omitted,
+  Chronicle auto-generates one at commit (LLM, best-effort), but prefer an
+  agent-authored summary.
 - **`name`** (optional) — short plaintext handle (`width-doubled`,
   `lr-1e-3`) for the new variation. Unique per experiment. Prefer this over
   the integer index when later referring to it. Suggest one derived from
