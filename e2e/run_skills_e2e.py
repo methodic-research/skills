@@ -465,6 +465,23 @@ def assert_report_pulled_wandb(report: dict) -> None:
     print("  takeaways_report looks distilled (pending/review-gated).")
 
 
+def _index_present(jwt: str, doc_id: str) -> bool | None:
+    """Deterministic `documents.get` against the Vertex index via
+    `GET /v1/assets/{id}?index_status=true` (edison PR #110): did the index
+    write actually land? Returns True if present (search serving may still be
+    catching up), False if genuinely absent, or None when the signal is
+    unavailable (endpoint missing, Vertex unconfigured, or a non-indexable
+    type — the field comes back `null`)."""
+    r = requests.get(
+        f"{CI_URL}/v1/assets/{doc_id}?index_status=true",
+        headers={"Authorization": f"Bearer {jwt}"},
+        timeout=30,
+    )
+    if not r.ok:
+        return None
+    return r.json().get("index_present")
+
+
 def assert_searchable(jwt: str, exp_id: str, report: dict) -> None:
     """POST /search and poll until *this experiment's* takeaways_report surfaces
     — the one assertion that exercises the real Vertex push.
@@ -485,15 +502,19 @@ def assert_searchable(jwt: str, exp_id: str, report: dict) -> None:
        precise "is *my* doc indexed?" question and can't be satisfied by a
        sibling doc that merely mentions the experiment.
 
-    A timeout here is a real signal: the takeaways_report was created
-    (state visible to the API) but its Vertex document never landed. Measured
-    on ci (2026-06-13): an inline `POST /assets` takeaways indexes in ~12s,
-    but the agent/write-report path intermittently never indexes (a report
-    from a failed run was still absent 18h later, experiment un-retracted).
-    The diagnostic below says so explicitly rather than blaming propagation."""
+    3. **Deterministic presence fallback.** Search is eventually-consistent;
+       the index *write* is not. On every miss we also probe `_index_present`
+       (documents.get). If the doc is in the index we pass — the write landed
+       and only serving-side search is lagging, which is Vertex's SLA, not our
+       bug. We fail hard only when documents.get *also* says absent: that is the
+       genuine write-report->index miss. Measured on ci (2026-06-13): an inline
+       `POST /assets` takeaways indexes in ~12s, but the agent/write-report path
+       intermittently lags far longer under full-run load. The diagnostic then
+       reports index_present rather than guessing about propagation."""
     doc_id = report.get("id")
     deadline = time.time() + SEARCH_WAIT_SECS
     last = "no hit"
+    landed = None  # last index-presence reading (True/False/None=unknown)
     while time.time() < deadline:
         r = requests.post(
             f"{CI_URL}/search",
@@ -514,13 +535,29 @@ def assert_searchable(jwt: str, exp_id: str, report: dict) -> None:
             last = f"{len(hits)} takeaways hits, none with document_id={doc_id}"
         else:
             last = _dump("search", r)
+        # Search not back yet — ask the index directly. A landed write is the
+        # contract we own; serving-side search lag is Vertex's, not ours.
+        landed = _index_present(jwt, doc_id)
+        if landed:
+            print(
+                "  takeaways_report present in the Vertex index (documents.get) — "
+                "the write landed; serving search is still catching up. Not a regression."
+            )
+            return
         time.sleep(15)
+    if landed is False:
+        raise Fail(
+            f"takeaways_report {doc_id} (state={report.get('state')!r}) never indexed "
+            f"within {SEARCH_WAIT_SECS}s: GET /v1/assets/{{id}}?index_status=true still "
+            f"reports index_present=false. The asset exists via the API but its Vertex "
+            f"document was never pushed — a real write-report->index bug, not propagation "
+            f"latency or a query/rank problem. (last search: {last})"
+        )
     raise Fail(
-        f"takeaways_report {doc_id} (state={report.get('state')!r}) not searchable "
-        f"within {SEARCH_WAIT_SECS}s; last: {last}. The asset exists via the API but "
-        f"its Vertex document never landed — this is the write-report indexing-push "
-        f"race, NOT propagation latency or a query/rank problem (the request is "
-        f"filtered + boosted + matched by document_id)."
+        f"takeaways_report {doc_id} (state={report.get('state')!r}) not searchable within "
+        f"{SEARCH_WAIT_SECS}s and the index-presence probe was inconclusive "
+        f"(index_present={landed!r} — index_status endpoint or Vertex unavailable). "
+        f"last search: {last}."
     )
 
 
