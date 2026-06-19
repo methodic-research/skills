@@ -6,10 +6,10 @@ description: |
   lineage of experiment Y", "explore the history", "what have we tried in
   this area", "where did this experiment come from". The skill combines
   semantic search over past experiments and reports
-  (`chronicle.search.history`), status-filtered browsing
-  (`chronicle.experiments.iter`), lineage DAG walks
-  (`chronicle.experiments.get_lineage`), and retraction provenance
-  (`chronicle.experiments.get_upstream_retractions`). Read-only; never
+  (`chronicle.search`), status-filtered browsing
+  (`chronicle.list_experiments`), lineage DAG walks
+  (`chronicle.get_lineage`), and retraction provenance
+  (retracted ancestors in the lineage). Read-only; never
   mutates anything. Do not invoke for surveying external literature (that's
   `chronicle-research-survey`, which also hits the literature MCP) or for a
   fast "is anything on fire" run-status check (that's `chronicle-status`).
@@ -22,21 +22,28 @@ corpus only (past experiments, their variations, and the reports attached
 to them). Designed for "what's been done in this area, how does it connect,
 and what's been retracted" questions. Never writes.
 
+## Transport — MCP-direct (no SDK needed)
+
+This is a read-only skill, so it uses the **bundled MCP tools** directly — no
+`pip install`. (If the `methodic` SDK happens to be installed and you prefer it,
+the SDK equivalents are noted inline.) The bundled launcher resolves credentials
+from `~/.methodic` — see the repo README "The MCP tools (bundled — zero config)".
+
 Three lenses, used together as the question demands:
 
-- **Semantic** — `chronicle.search.history(...)` finds past experiments and
-  reports relevant to a topic, even without exact keyword matches.
-- **Structural** — `chronicle.experiments.iter(status=...)` browses by
-  lifecycle state; `chronicle.experiments.get_lineage(id)` walks the
-  parent/child DAG.
-- **Provenance** — `chronicle.experiments.get_upstream_retractions(id)`
-  surfaces retracted ancestors whose retraction undermines a node's
-  premises.
+- **Semantic** — `chronicle.search` finds past experiments and reports relevant
+  to a topic, even without exact keyword matches.
+- **Structural** — `chronicle.list_experiments` browses by lifecycle state;
+  `chronicle.get_lineage` walks the parent/child DAG.
+- **Provenance** — `chronicle.get_lineage` also surfaces retracted ancestors
+  (entries with a non-null `retracted_at`) whose retraction undermines a node's
+  premises. There is no dedicated upstream-retractions tool — read it off the
+  lineage, the way `chronicle-status` does.
 
 ## Inputs
 
 - **`query`** (optional) — a topic/keyword for semantic search. If present,
-  lead with `search.history`.
+  lead with `chronicle.search`.
 - **`experiment_id`** (optional) — a specific experiment to anchor on. If
   present, lead with lineage + retraction provenance for that node.
 - **`status`** (optional) — filter browsing to `open` / `committed` /
@@ -51,54 +58,43 @@ no-experiment path) and ask the user to narrow.
 
 ## Workflow
 
-```python
-from methodic import Chronicle
+1. **Semantic search over experiment history + internal reports.** If `query`
+   is present, call **`chronicle.search`** with `{ "query": "<query>",
+   "asset_types": ["hypothesis_report", "takeaways_report", "research_report"] }`
+   (add `created_by` / `created_after` / `created_before` when the user scoped by
+   author or time window). The result (JSON in the tool's text content) is a list
+   of hits referencing experiments and/or report assets — present each with its
+   experiment id, the matched report type, and a snippet.
 
-chronicle = Chronicle.from_env()  # CHRONICLE_SERVER_URL + CHRONICLE_API_KEY
+   *(SDK equivalent: `chronicle.search.history(query, created_by=…,
+   created_after=…, created_before=…, asset_types=[…])`.)*
 
-# 1. Semantic search over experiment history + internal reports.
-if query:
-    hits = chronicle.search.history(
-        query,
-        created_by=created_by,          # optional author filter
-        created_after=created_after,    # optional time bounds
-        created_before=created_before,
-        asset_types=["hypothesis_report", "takeaways_report", "research_report"],
-    )
-    for h in hits:
-        # hits reference experiments and/or report assets — present each
-        # with its experiment id, the matched report type, and a snippet.
-        print(f"  {h}")
+2. **Structural browse by lifecycle state.** If `status` is present, call
+   **`chronicle.list_experiments`** with `{ "status": "<status>" }` (optionally
+   an `owner`/scope filter). Cap the scan — print the first ~20:
+   `id · hypothesis_summary[:60] · [state, retracted?]`. Don't page through
+   everything.
 
-# 2. Structural browse by lifecycle state. Cap the scan — break early.
-if status:
-    print(f"\n{status} experiments:")
-    shown = 0
-    for summary in chronicle.experiments.iter(status=status):
-        badges = [summary.state]
-        if summary.retracted_at:
-            badges.append("retracted")
-        print(f"  {summary.id}  {summary.hypothesis_summary[:60]}  [{', '.join(badges)}]")
-        shown += 1
-        if shown >= 20:
-            break
+   *(SDK equivalent: `chronicle.experiments.iter(status=…)`, breaking early.)*
 
-# 3. Lineage DAG for a specific node — where it came from, what built on it.
-if experiment_id:
-    lineage = chronicle.experiments.get_lineage(experiment_id)
-    print(f"\nLineage of {experiment_id}:")
-    for anc in lineage.ancestors:
-        print(f"  ↑ parent  {anc.id}  {anc.hypothesis_summary[:60]}")
-    for desc in lineage.descendants:
-        print(f"  ↓ child   {desc.id}  {desc.hypothesis_summary[:60]}")
+3. **Lineage DAG for a specific node** — where it came from, what built on it.
+   If `experiment_id` is present, call **`chronicle.get_lineage`** with
+   `{ "experiment_id": "<id>" }`. The result has `ancestors[]` (parents up) and
+   `descendants[]` (children down); show it as a short indented tree, one line
+   each: `id · hypothesis_summary[:60]`.
 
-    # 4. Retraction provenance — retracted ancestors invalidate premises.
-    upstream = chronicle.experiments.get_upstream_retractions(experiment_id, depth=5)
-    if upstream.has_retractions:
-        print("\n⚠ Upstream retractions in lineage:")
-        for r in upstream.retractions:
-            print(f"  exp {r.experiment_id} retracted at {r.retracted_at}: {r.reason}")
-```
+   *(SDK equivalent: `chronicle.experiments.get_lineage(id)` →
+   `lineage.ancestors` / `lineage.descendants`.)*
+
+4. **Retraction provenance** — retracted ancestors invalidate premises. From the
+   same `chronicle.get_lineage` result, flag any `ancestors[]` entry carrying a
+   non-null `retracted_at` (with its `retraction_reason`). If any are present,
+   call them out at the top — they change how everything downstream should be
+   read. There is no separate upstream-retractions tool; this is read straight
+   off the lineage.
+
+   *(SDK equivalent: `chronicle.experiments.get_upstream_retractions(id,
+   depth=5)` → `upstream.retractions`.)*
 
 ## After the skill completes
 
@@ -119,10 +115,10 @@ verbosity:
 
 ## Failure modes
 
-- **Search not configured** (`503` from `chronicle.search.history`): the
+- **Search not configured** (`503` from `chronicle.search`): the
   server's search backend (Vertex AI Search) isn't wired in this
-  environment. Fall back to the structural lenses — `experiments.iter()`
-  and `get_lineage()` still work without search — and tell the user
+  environment. Fall back to the structural lenses — `chronicle.list_experiments`
+  and `chronicle.get_lineage` still work without search — and tell the user
   semantic search is unavailable.
 - **`experiment_id` not found / 403**: the experiment doesn't exist or the
   user lacks `Read` on it. Surface the message; for a 403, note that
@@ -132,12 +128,9 @@ verbosity:
   `chronicle-research-survey` (which also searches external literature) — do
   not invent results.
 - **Large lineage**: a deep DAG can return many nodes. Keep the depth bound
-  (`depth=5` above) and summarize counts ("12 descendants; showing the 5
-  most recent") rather than dumping the whole graph.
+  and summarize counts ("12 descendants; showing the 5 most recent") rather
+  than dumping the whole graph.
 
 ## Requires
 
-- `pip install methodic-research` (≥ search-enabled release for the semantic
-  lens; the structural + provenance lenses work without it)
-- `CHRONICLE_API_KEY` exported (or `methodic auth login` already done)
-- No `git`, no writes — purely read.
+Nothing to install — uses the bundled MCP tools (read-only; no git, no writes).

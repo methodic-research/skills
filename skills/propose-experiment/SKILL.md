@@ -21,6 +21,16 @@ first-class Chronicle experiment. The end state is: a new experiment in
 `hypothesis_report` attached and a `research_prompt` linked as its primary
 anchor.
 
+## Transport — MCP-direct (no SDK needed)
+
+This skill uses the **bundled MCP tools** directly — no `pip install`. Every
+step maps to a `chronicle.*` tool: `create_experiment`, `write_report` (kind
+`hypothesis_report`), `create_research_prompt`, and the optional
+`commit_experiment`. (If the `methodic` SDK happens to be installed and you
+prefer it, the SDK equivalents are noted inline.) The bundled launcher
+resolves credentials from `~/.methodic` — see the repo README "The MCP tools
+(bundled — zero config)".
+
 The hypothesis comes in two forms and you produce both:
 
 - a **short summary** — one or two sentences, lives in
@@ -58,47 +68,48 @@ The hypothesis comes in two forms and you produce both:
 
 ## Workflow
 
-```python
-from methodic import Chronicle
+1. **Create the experiment.** Call **`chronicle.create_experiment`** with
+   `{ "hypothesis_summary": <short field>, "config_yaml": <config_yaml>,
+   "rationale": <optional: why this is worth testing>, "description":
+   <optional: human-readable card text>, "parent_experiment_ids":
+   <parent_experiment_ids or omit> }`. `hypothesis_summary` is the short
+   field; `config_yaml` seeds variation 0. The result is JSON in the tool's
+   text content: the new experiment `id` and its `state` (`open`). Report
+   "Created experiment `<id>` (open)".
 
-chronicle = Chronicle.from_env()  # CHRONICLE_SERVER_URL + CHRONICLE_API_KEY
+   *(SDK equivalent: `chronicle.experiments.create(hypothesis_summary=…,
+   config_yaml=…, rationale=…, description=…,
+   parent_experiment_ids=… or None)` → `exp.id`.)*
 
-# 1. Create the experiment. hypothesis_summary is the short field;
-#    config_yaml seeds variation 0.
-exp = chronicle.experiments.create(
-    hypothesis_summary=hypothesis_summary,
-    config_yaml=config_yaml,
-    rationale=rationale,                       # optional: why this is worth testing
-    description=description,                    # optional: human-readable card text
-    parent_experiment_ids=parent_experiment_ids or None,
-)
-print(f"Created experiment {exp.id} (open)")
+2. **Attach the FULL hypothesis as a `hypothesis_report`.** Call
+   **`chronicle.write_report`** with `{ "experiment_id": "<id>", "kind":
+   "hypothesis_report", "summary": <hypothesis_summary>, "body":
+   <hypothesis_document> }` — pass the full Markdown doc as `body`, plus any
+   structured fields the hypothesis layout accepts (predictions, measurement
+   plan, etc.) the agent populated. Do this whether or not we commit now —
+   the commit gate requires this asset. The result JSON carries the new
+   report asset `id`; report "Attached hypothesis_report `<id>`".
 
-# 2. Attach the FULL hypothesis as a hypothesis_report. The commit gate
-#    requires this asset, so do it whether or not we commit now. `render`
-#    in template mode fills the canonical hypothesis layout from a payload.
-report = exp.reports.hypothesis.render(payload={
-    "summary": hypothesis_summary,
-    "body": hypothesis_document,               # the full Markdown doc
-    # plus any structured fields the hypothesis template accepts
-    # (predictions, measurement plan, etc.) the agent populated.
-})
-print(f"Attached hypothesis_report {report.id}")
+   *(SDK equivalent: `exp.reports.hypothesis.render(payload={"summary": …,
+   "body": …, …})` → `report.id`.)*
 
-# 3. Create and link a research prompt as the experiment's anchor.
-#    research_prompts are immutable once created (just `prompt` text — no
-#    title) and each experiment has exactly one primary. The experiment-
-#    bound create() makes the prompt and links it as primary in one call.
-rp = exp.research_prompts.create(research_prompt_text, primary=True)
-print(f"Linked research prompt {rp['id']}")
+3. **Create and link a research prompt as the experiment's anchor.** Call
+   **`chronicle.create_research_prompt`** with `{ "experiment_id": "<id>",
+   "prompt": <research_prompt_text>, "primary": true }`. research_prompts
+   are immutable once created (just `prompt` text — no title) and each
+   experiment has exactly one primary. The result JSON carries the prompt
+   `id`; report "Linked research prompt `<id>`".
 
-# 4. OPTIONALLY commit (lock the specification). Only when the user asked.
-#    Commit freezes inputs + config; new variations can still be added
-#    after commit, but the hypothesis/config spec is locked.
-if commit:
-    chronicle.experiments.commit(exp.id)
-    print(f"Committed experiment {exp.id}")
-```
+   *(SDK equivalent: `exp.research_prompts.create(research_prompt_text,
+   primary=True)` → `rp["id"]`.)*
+
+4. **OPTIONALLY commit (lock the specification).** Only when the user
+   asked. Call **`chronicle.commit_experiment`** with `{ "experiment_id":
+   "<id>" }`. Commit freezes inputs + config; new variations can still be
+   added after commit, but the hypothesis/config spec is locked. Report
+   "Committed experiment `<id>`".
+
+   *(SDK equivalent: `chronicle.experiments.commit(exp.id)`.)*
 
 ## After the skill completes
 
@@ -119,30 +130,30 @@ the user that retracted parents block new children unless
 
 ## Failure modes
 
-- **`experiments.create` returns 403**: the user lacks `Create`
+- **`create_experiment` returns 403**: the user lacks `Create`
   permission. Surface verbatim.
-- **`commit` rejected — missing `hypothesis_report`**: should not happen
-  because step 2 attaches it before step 4, but if the render in step 2
-  failed and was skipped, commit will refuse. Re-run the report render,
-  then re-attempt commit.
-- **`commit` rejected — retracted parent**: a `parent_experiment_id` is
-  retracted and `allow_retracted_parent` wasn't set. Tell the user; either
-  drop the parent or re-create with the flag (a deliberate choice, not a
-  silent default).
-- **`research_prompts.create` returns 403 or a not-yet-available method**:
-  the research-prompts namespace is being built concurrently. If the method
-  is missing in the installed SDK, create the experiment + hypothesis_report
-  anyway, tell the user the research-prompt link couldn't be made yet, and
-  suggest attaching it later via
-  `chronicle.research_prompts.attach(exp.id, rp_id, primary=True)`.
+- **`commit_experiment` rejected — missing `hypothesis_report`**: should
+  not happen because step 2 attaches it before step 4, but if the
+  `write_report` in step 2 failed and was skipped, commit will refuse.
+  Re-run the report write, then re-attempt commit.
+- **`commit_experiment` rejected — retracted parent**: a
+  `parent_experiment_id` is retracted and `allow_retracted_parent` wasn't
+  set. Tell the user; either drop the parent or re-create with the flag (a
+  deliberate choice, not a silent default).
+- **`create_research_prompt` returns 403**: the user lacks authority to
+  anchor the experiment. Create the experiment + hypothesis_report anyway,
+  tell the user the research-prompt link couldn't be made yet, and suggest
+  attaching it later.
 - **`config_yaml` invalid**: the server validates the seed config on
   create. Surface the validation error and let the user fix the YAML before
   retrying.
 
 ## Requires
 
-- `pip install methodic-research` (≥ experiments + research-prompts release)
-- `CHRONICLE_API_KEY` exported (or `methodic auth login` already done)
-- No `git` — this skill creates an experiment + assets via the API; the
+- Nothing to install — uses the bundled MCP tools
+  (`chronicle.create_experiment` / `write_report` / `create_research_prompt`
+  / `commit_experiment`).
+- Credentials resolved from `~/.methodic` (or `CHRONICLE_API_KEY` exported).
+- No `git` — this skill creates an experiment + assets via MCP; the
   experiment's git repo is provisioned server-side and used later by the
   variation skills.

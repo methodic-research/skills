@@ -23,59 +23,65 @@ experiments). It is **curatorial** — membership organizes and surfaces things;
 it never grants access. Collections **overlap** (an object can be in many), span
 any asset type AND experiments, and are scope-owned (personal / team / org).
 
-Thin wrapper over the SDK's `chronicle.collections` namespace + `chronicle.search`.
 **User-request-driven**: only curate or scope when the user asks for it.
+
+## Transport — MCP-direct (no SDK needed)
+
+This skill uses the **bundled MCP tools** directly — no `pip install`. (If the
+`methodic` SDK happens to be installed and you prefer it, the SDK equivalents are
+noted inline.) The bundled launcher resolves credentials from `~/.methodic` — see
+the repo README "The MCP tools (bundled — zero config)".
 
 ## Create + add members
 
-```python
-from methodic import Chronicle
-chronicle = Chronicle.from_env()
+1. Call **`chronicle.collection_add`** with `{ "name": "Magento hydrodynamics",
+   "description": "papers + experiments on …", "asset_ids": [paper1, paper2],
+   "experiment_ids": [exp_a] }`. This creates the collection if it doesn't exist
+   and adds the members in one call. Members are ANY assets and/or experiments —
+   imported PDFs, datasets, reports, arxiv refs, experiments — and overlap across
+   collections is fine. The result (JSON in the tool's text content) carries the
+   collection `id`.
 
-col = chronicle.collections.create("Magento hydrodynamics",
-                                   description="papers + experiments on …")
-# Members are ANY assets and/or experiments — overlap across collections is fine.
-chronicle.collections.add(col["id"],
-                          asset_ids=[paper1, paper2],   # imported PDFs, datasets, reports, arxiv …
-                          experiment_ids=[exp_a])
-```
+   Pass `reindex_mode` when relevant: `"lazy"` (default — search reflects the
+   change on the normal reindex cadence) or `"eager"` (restamp promptly when the
+   user wants to search the collection right away). The Postgres membership write
+   is immediate regardless of mode.
 
-`add`/`remove` take `reindex_mode` (`"lazy"` default — search reflects the change
-on the normal reindex cadence; `"eager"` — restamp promptly when the user wants
-to search the collection right away). The Postgres membership write is immediate
-regardless of mode.
+   *(SDK equivalent: `chronicle.collections.create(name, description=…)` then
+   `chronicle.collections.add(col["id"], asset_ids=[…], experiment_ids=[…],
+   reindex_mode=…)`.)*
 
 ## Two ways a collection affects search
 
-**Associate with an experiment (boost).** Members float up when searching in
-that experiment's context:
-```python
-chronicle.collections.associate(experiment_id, [col["id"]])
-```
+**Associate with an experiment (boost).** Members float up when searching in that
+experiment's context:
 
-**Scope a search (hard filter) — only when the user asks.** Restrict results to
-a collection's members (and/or experiments):
-```python
-hits = chronicle.search.query("turbulence onset",
-                              scope={"collections": [col["id"]]})
-```
-Default behaviour is to **search broadly** (no `scope`). Add a scope only on an
-explicit "search within …" request.
+2. Call **`chronicle.collection_associate`** with `{ "experiment_id": "<id>",
+   "collection_ids": ["<col_id>"] }`.
+
+   *(SDK equivalent: `chronicle.collections.associate(experiment_id,
+   [col["id"]])`.)*
+
+**Scope a search (hard filter) — only when the user asks.** Restrict results to a
+collection's members (and/or experiments):
+
+3. Call **`chronicle.search`** with `{ "query": "turbulence onset",
+   "scope": { "collections": ["<col_id>"] } }`.
+
+   Default behaviour is to **search broadly** (no `scope`). Add a scope only on
+   an explicit "search within …" request.
+
+   *(SDK equivalent: `chronicle.search.query("turbulence onset",
+   scope={"collections": [col["id"]]})`.)*
 
 ## Existence-only access (important)
 
 A collection's ACL is **existence-only** — it gates knowing the collection
-exists, never reading its members. `members(id)` returns only the members the
+exists, never reading its members. Listing members returns only the members the
 caller can already read; counts don't leak hidden ones. Adding a member needs
 `Write` on the collection **and** `Read` on the member, and changes no
 permissions anywhere — so scoping/boosting can never reveal something the user
 couldn't already see.
-
-## MCP-native agents
-
-`chronicle.collection_add` (with `reindex_mode`) and
-`chronicle.collection_associate`; `chronicle.search` accepts `scope`. Same
-existence-only + user-request-driven rules.
 
 ## After the skill completes
 
@@ -85,6 +91,4 @@ would add).
 
 ## Requires
 
-- `pip install methodic-research` (the `chronicle.collections` namespace + `search(scope=…)`)
-- `CHRONICLE_API_KEY` + `CHRONICLE_SERVER_URL` exported (or `methodic auth login`)
-- CLI equivalent: `chronicle collections {create,list,show,add,remove,associate}`
+Nothing to install — uses the bundled MCP tools.
