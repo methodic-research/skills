@@ -22,10 +22,11 @@ stays SHA-pinned and untouched. On commit, Chronicle renames the branch to
 ## Inputs
 
 - **`experiment_id`** — see prep-variation; same resolution rules.
-- **`source_variation`** — the variation index OR plaintext name to fork
-  from. Required. If the user says "fork width-doubled," resolve that
-  name → index via `chronicle.variations.find_by_name(experiment_id, …)`
-  before passing to the SDK calls below.
+- **`source_variation`** — the variation **integer index** to fork from (the
+  SDK addresses variations by int id, not by name). Required. If the user names
+  it ("fork width-doubled"), resolve that to the index first — match `name` in
+  `chronicle.experiments.get(experiment_id).variations` — and pass the `int`
+  (step 0 below).
 - **`description`** — a concise one-line summary of what this fork is about,
   shown in the variations list. Provide it (what the fork changes vs the
   source); if omitted, Chronicle auto-generates one at commit (LLM,
@@ -42,6 +43,17 @@ from methodic import Chronicle
 import subprocess, tempfile, pathlib
 
 chronicle = Chronicle.from_env()
+
+# 0. Resolve source_variation to an integer index — the SDK addresses variations
+#    by int id, so passing a plaintext name where an int is expected errors. If a
+#    name was given, look it up in the experiment's variations list.
+if isinstance(source_variation, str) and not source_variation.lstrip("-").isdigit():
+    detail = chronicle.experiments.get(experiment_id)
+    match = next((v for v in detail.variations if v.name == source_variation), None)
+    if match is None:
+        raise SystemExit(f"no variation named {source_variation!r} in experiment {experiment_id}")
+    source_variation = match.variation
+source_variation = int(source_variation)
 
 # 1. Resolve the source variation's git_sha (locked at its commit time)
 source = chronicle.variations.get(experiment_id, source_variation)
