@@ -23,22 +23,21 @@ enrichment pass annotates **tables and equations** with two models plus a
 disagreements, and `requires_human_review` flags. This skill is the human
 side of that loop: see what was flagged and decide.
 
-## Transport — MCP-direct (hybrid)
+## Transport — MCP-direct
 
-Triage uses the **bundled MCP tool** `chronicle.review_import` directly — no
-`pip install` for the inspection pass. It returns the per-import extraction +
+Both halves are MCP-direct — **no `pip install`**. Triage uses the bundled MCP
+tool `chronicle.review_import`; it returns the per-import extraction +
 enrichment state and the flagged objects (with their unified annotations and
 disagreements) so you don't have to presign and fetch
-`index/review_items.ndjson` / `annotations/unified/*.json` by hand. (If the
-`methodic` SDK is installed, the manual presign+fetch SDK equivalent is noted
-inline.)
+`index/review_items.ndjson` / `annotations/unified/*.json` by hand. The
+lifecycle **actions** ride their own MCP tools: `chronicle.approve_asset` /
+`chronicle.reject_asset` (the review gate) and `chronicle.deprecate_asset` /
+`chronicle.invalidate_asset` (validity flags) — all gated on `Write`.
 
-This skill is **HYBRID**: the *action* half has no MCP tool. Asset
-`accept`/`deprecate`/`invalidate`/`approve`/`reject` are **SDK-only** —
-keep them on the `methodic` SDK. The server-side re-enqueue is admin-only and
-goes through the **REST surface** directly (same posture as the
-`*-error-queue` skills). So: MCP for triage/inspection; SDK for the lifecycle
-actions; REST for re-enqueue.
+The only non-MCP bits: the optional manual presign+fetch fallback (noted inline,
+for when the triage tool's joined data isn't enough — blob reads, needs the
+`methodic` SDK), and the admin-only re-enqueue, which goes through the **REST
+surface** directly (same posture as the `*-error-queue` skills).
 
 Where the state lives (all on the asset; `chronicle.review_import` surfaces
 it for you):
@@ -90,16 +89,16 @@ it for you):
    the transcribed LaTeX / table columns, and any model disagreements
    (`unified["disagreements"]` — field, both values, resolution).
 
-3. **Route actions** (SDK-only — no MCP tool for these):
+3. **Route actions** (MCP tools — all gated on `Write` on the asset):
    - **Looks right** → no action needed; flags are advisory.
    - **Import is wrong/garbage** → keep provenance, take it out of use:
-     `chronicle.assets.deprecate(asset_id, reason="bad scan — superseded")`,
-     or `chronicle.assets.invalidate(asset_id, reason=…)` for a hard
-     input-block.
+     `chronicle.deprecate_asset` with `{ "asset_id": "<id>", "reason": "bad
+     scan — superseded" }`, or `chronicle.invalidate_asset` with `{ "asset_id":
+     "<id>", "reason": "…" }` for a hard input-block.
    - **Review-GATED import** (registered with `pending_reasons:
-     ["review_required"]`) → lifecycle action: `chronicle.assets.approve(
-     asset_id)` clears the gate + finalizes, or
-     `chronicle.assets.reject(asset_id, reason=…)` abandons it.
+     ["review_required"]`) → `chronicle.approve_asset` with `{ "asset_id":
+     "<id>" }` clears the gate + finalizes, or `chronicle.reject_asset` with
+     `{ "asset_id": "<id>", "reason": "…" }` abandons it.
 
 4. **Re-run the server side** (extraction or enrichment) after a fix —
    admin-only, **REST surface** directly (not MCP, not SDK-wrapped): a
@@ -134,11 +133,11 @@ Tell the user, per org:
 
 ## Requires
 
-- The bundled MCP tool `chronicle.review_import` for triage (no install).
-- `pip install methodic-research` (≥0.13 — `assets.approve/reject/
-  deprecate/invalidate`) for the action half, since those have no MCP tool.
-  `requests` only if you fall back to the manual presign+fetch SDK path
-  (blob reads, not Chronicle API calls).
+- The bundled MCP tools — `chronicle.review_import` for triage and
+  `chronicle.{approve,reject,deprecate,invalidate}_asset` for the actions. No
+  `pip install` for either half.
+- `pip install methodic-research` + `requests` **only** if you fall back to the
+  manual presign+fetch path (blob reads, not Chronicle API calls).
 - `CHRONICLE_API_KEY` (or credentials in `~/.methodic`); superadmin key
   only for the re-enqueue path.
 - No `git`.
