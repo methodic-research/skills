@@ -11,75 +11,59 @@ description: |
 
 # Status
 
-Fast, read-only summary of one experiment (or the user's active experiments
-if none specified). Designed to answer the "is anything on fire" question
-without diving into the web UI.
+Fast, read-only summary of one experiment (or the user's active experiments if
+none specified). Answers "is anything on fire" without opening the web UI.
+
+## Transport — MCP-direct (no SDK needed)
+
+This is a read-only skill, so it uses the **bundled MCP tools** directly — no
+`pip install`. (If the `methodic` SDK happens to be installed and you prefer it,
+the SDK equivalents are noted inline.) The bundled launcher resolves credentials
+from `~/.methodic` — see the repo README "The MCP tools (bundled — zero config)".
 
 ## Inputs
 
 - **`experiment_id`** (optional) — single experiment to inspect. If omitted,
-  the skill lists all experiments owned by the caller and reports each in
-  brief.
-- **`include_retracted_ancestors`** (default `True`) — also walk the lineage
-  upstream and surface any retracted parents/grandparents.
+  list the caller's experiments and report each in brief.
+- **`include_retracted_ancestors`** (default `True`) — also surface retracted
+  parents/grandparents that affect this experiment's lineage validity.
 
 ## Workflow (single experiment)
 
-```python
-from methodic import Chronicle
+1. Call **`chronicle.get_experiment`** with `{ "experiment_id": "<id>" }`. The
+   result (JSON in the tool's text content) is an `ExperimentDetail`:
+   `experiment` (id, `hypothesis_summary`, `state`, `created_at`/`created_by`,
+   `retracted_at` + `retraction_reason`, `git_repo_state`) and `variations[]`
+   (variation index, `name`, `committed_at`, `retracted_at`, `run_count`,
+   `latest_status`).
+2. If `include_retracted_ancestors`, call **`chronicle.get_lineage`** with
+   `{ "experiment_id": "<id>" }` and flag any `ancestors[]` entry carrying a
+   non-null `retracted_at` — those invalidate this experiment's premises.
 
-chronicle = Chronicle.from_env()
+Present a compact snapshot:
+- Experiment line: id · `state` (+ `RETRACTED … reason` when set) · created by ·
+  `git_repo_state` when it isn't `ready`.
+- One line per variation: `name or v<index>` — `run_count` runs —
+  `committed` / `retracted` / `last run: <status>` / `open`.
+- A prominent `⚠ Upstream retractions` block if any ancestor is retracted.
 
-detail = chronicle.experiments.get(experiment_id)
-exp = detail.experiment
-print(f"Experiment {exp.id}")
-print(f"  Hypothesis: {exp.hypothesis_summary}")
-print(f"  State: {exp.state}", end="")
-if exp.retracted_at:
-    print(f"  (RETRACTED at {exp.retracted_at}: {exp.retraction_reason})", end="")
-print()
-print(f"  Created: {exp.created_at} by {exp.created_by}")
-print(f"  Variations: {len(detail.variations)}")
-for v in detail.variations:
-    badges = []
-    if v.committed_at: badges.append("committed")
-    if v.retracted_at: badges.append("retracted")
-    if v.latest_status: badges.append(f"last run: {v.latest_status}")
-    # Prefer the plaintext name; fall back to the integer index when
-    # the user hasn't named the variation. See `Variation naming` in
-    # the repo README for the convention.
-    handle = v.name or f"v{v.variation}"
-    print(f"    {handle} — {v.run_count} runs — {', '.join(badges) or 'open'}")
-
-# Surface upstream retractions — these invalidate this experiment's premises
-if include_retracted_ancestors:
-    upstream = chronicle.experiments.get_upstream_retractions(experiment_id, depth=5)
-    if upstream.has_retractions:
-        print()
-        print("⚠ Upstream retractions in lineage:")
-        for r in upstream.retractions:
-            print(f"  exp {r.experiment_id} retracted at {r.retracted_at}: {r.reason}")
-```
+*(SDK equivalent, if you prefer it: `chronicle.experiments.get(id)` →
+`detail.experiment` / `detail.variations`, and
+`experiments.get_upstream_retractions(id, depth=5)`.)*
 
 ## Workflow (no specific experiment)
 
-```python
-print("Recent experiments:")
-for summary in chronicle.experiments.iter():
-    badges = [summary.state]
-    if summary.retracted_at: badges.append("retracted")
-    print(f"  {summary.id}  {summary.hypothesis_summary[:60]}  [{', '.join(badges)}]")
-```
+Call **`chronicle.list_experiments`** (optionally with an `owner`/scope filter)
+and print the first ~20: `id · hypothesis_summary[:60] · [state, retracted?]`.
+Don't page through everything.
 
-(For multi-experiment listing, cap at the first ~20 results — use the
-SDK's `experiments.iter()` and break early to avoid scanning everything.)
+*(SDK equivalent: `chronicle.experiments.iter()`, breaking early.)*
 
 ## After the skill completes
 
-If anything looks off (recent failures, retracted ancestors, repo in
-`failed` state), surface it prominently. Don't bury it under the normal
-status output.
+If anything looks off (recent failures, retracted ancestors, repo in `failed`
+state), surface it prominently — don't bury it under the normal output.
 
 ## Requires
 
-Same as `chronicle-mint-git-token`. No git, no writes — purely read.
+Nothing to install — uses the bundled MCP tools (read-only; no git, no writes).

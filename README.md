@@ -28,7 +28,7 @@ This repo is a Claude Code marketplace containing one plugin (`methodic`).
 > #    "API keys" in the sidebar, create a key, and paste the one-line
 > #    setup command the UI shows. It looks like:
 > mkdir -p ~/.methodic && echo 'api_key: sk_user_...' > ~/.methodic/credentials.yaml && chmod 600 ~/.methodic/credentials.yaml
-> # …and install the SDK the skills orchestrate:
+> # …optional: install the SDK (only for large/multi-file uploads + W&B):
 > pip install methodic-research
 > ```
 > ```text
@@ -39,11 +39,10 @@ This repo is a Claude Code marketplace containing one plugin (`methodic`).
 >
 > That's the whole default path — once the plugin is installed you can start
 > immediately ("survey the literature on …", "propose an experiment for …").
-> The easy-to-miss line is the `pip install`: the skills orchestrate the
-> `methodic` SDK and never make raw HTTP calls, so without `methodic-research`
-> importable in the Python environment Claude Code shells out to, every skill
-> ImportErrors on `from methodic import Chronicle` and does nothing. Details
-> below.
+> The `pip install` is now **optional**: the plugin bundles an MCP server
+> (step 3) that talks to Chronicle directly, so most skills work with no
+> Python. Install `methodic-research` only for the SDK-only paths
+> (large/multi-file dataset uploads, agent-side W&B). Details below.
 
 > **Heads-up for agents (initial bootstrap).** Creating the account and API
 > key happens in the Methodic UI, logged in as the user — there is no API an
@@ -81,12 +80,15 @@ bootstrap — an agent can't do it for you; see the note above):
    mkdir -p ~/.methodic && echo 'organization_id: <org-principal-id>' > ~/.methodic/config.yaml && echo 'api_key: sk_user_...' > ~/.methodic/credentials.yaml && chmod 600 ~/.methodic/credentials.yaml
    ```
 
-4. **Install the SDK** in the same terminal — the skills orchestrate it (they
-   never make raw HTTP calls), so it must be importable in the Python
-   environment Claude Code shells out to:
+4. **(Optional) Install the SDK** — the bundled MCP server (step 3) handles
+   most skills with no Python at all. Install `methodic-research` only for the
+   SDK-only paths: **large / multi-file directory dataset uploads**
+   (`chronicle.datasets.upload` shards a directory; the MCP `upload_asset` is
+   single-blob) and **agent-side W&B fetch**. Skills prefer the SDK when it's
+   importable, and fall back to the MCP tools otherwise:
 
    ```bash
-   pip install methodic-research
+   pip install methodic-research   # optional — see above
    ```
 
 What the setup command wrote:
@@ -116,9 +118,11 @@ Inside Claude Code:
 
 That's it — with step 1 done, you can start immediately: the skills auto-trigger by intent ("survey the literature on …", "propose an experiment for …", "make a variation that …"). Pull new versions later with `/plugin marketplace update methodic`.
 
-### 3. Wire the Chronicle MCP tools (recommended)
+### 3. The MCP tools (bundled — zero config)
 
-The skills run on the SDK alone, but Chronicle also hosts an **MCP server** (`/v1/mcp/messages`, served by `chronicle-server`) exposing native `chronicle.*` tools — internal search, experiment create/read/commit, move/delete/retract lifecycle (`chronicle.move_experiment`, `chronicle.delete_experiment` — creator-guarded, `chronicle.retract_experiment`), report-write, image + generic asset (dataset) upload + ACL management + orphan hard-delete (`chronicle.delete_asset` — creator-guarded, unlinked assets only), research prompts, session search. Point Claude Code at it with a project-scoped `.mcp.json` at your repo root:
+Chronicle hosts an **MCP server** (`/v1/mcp/messages`, served by `chronicle-server`) exposing native `chronicle.*` tools — internal search, experiment create/read/commit, move/delete/retract lifecycle, report-write, image + generic asset (dataset) upload + ACL management + orphan hard-delete, research prompts, session search. **The plugin bundles a launcher that wires these up for you** (`.mcp.json` → `mcp/server.js`): on install it registers a local stdio MCP server that reads the **same `~/.methodic/credentials.yaml`** and proxies to your Chronicle server — no manual config, no key pasted into a file. It also intercepts `upload_asset`/`upload_image` calls that pass a local `path`, doing presign → PUT → finalize over HTTP so the bytes never pass through the model. (`node` ≥18, already required by Claude Code; first tool use prompts for approval.) Calling these tools directly is leaner on tokens than the SDK — a structured tool call vs. reading + regenerating SDK code — so MCP-direct is the default for read/CRUD skills.
+
+**Without the plugin** (direct-API users), point Claude Code at the remote server yourself with a project-scoped `.mcp.json` at your repo root:
 
 ```json
 {
@@ -178,7 +182,7 @@ To give a whole team a one-trust setup, commit a `.claude/settings.json` to the 
 | `synthesis-event-handler` | (inside a tartarus-d synthesis agent) "I just received a `variation_completed` event", "stdin shows `distillation_completed`" | Behavior contract for the synthesis agent's response to M11 continuous-exploration push events. Parses the event, fetches report bodies, decides whether to propose follow-up variations. Not user-invokable — the agent triggers it from its system prompt when an event lands on stdin. See [`agent-flows.md`](../runes/chronicle/designs/agent-flows.md) §17.8 and the [push design plan](../edison/shared_plans/m11-synthesis-events-push.md). |
 | `methodic-feedback` | "file feedback", "report this", "request a feature" — and **proactively**, whenever the agent hits a gap or issue mid-task | Records feedback to Chronicle's private feedback endpoint the moment it's encountered (Markdown body; `gap` / `feedback` / `feature_request`), then — end of turn, with your confirmation — offers to mirror it as a public GitHub issue on `methodic-research/skills` via your own `gh` (searching for duplicates first). Reproducible errors route to the error pipeline instead of plain feedback. |
 
-Every skill is a thin orchestration layer over the [`methodic-research`](https://pypi.org/project/methodic-research/) Python SDK — skills don't construct HTTP calls themselves. If a skill needs something the SDK can't do, that's a signal to add an SDK method (and probably an API endpoint), not to reach into the network layer from the skill.
+Skills reach Chronicle two ways — the **bundled MCP server** (`chronicle.*` tools, no install; preferred for read/CRUD, leaner on tokens) and the [`methodic-research`](https://pypi.org/project/methodic-research/) Python SDK (preferred when importable for the byte-heavy paths — multi-file dataset uploads, agent-side W&B). Neither constructs raw HTTP from the skill itself; if something's missing, add an MCP tool and/or SDK method (and probably an API endpoint), not a network call in the skill.
 
 > The two `*-error-queue` skills currently use raw `requests` calls because the underlying `/v1/admin/triage-queue` and `/v1/admin/fix-queue` endpoints are not yet wrapped in the SDK. Move them to `methodic.admin.*` namespaces once those endpoints stabilize (tracked in the implementation plan in `automated-error-reporting.md` §13).
 
