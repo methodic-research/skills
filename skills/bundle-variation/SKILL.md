@@ -1,36 +1,45 @@
 ---
 name: chronicle-bundle-variation
 description: |
-  Use this skill when an agent has training code **locally** (not pushed to
-  the experiment's git repo) and wants a **managed Menlo Park worker** to
-  install and run it — phrases like "bundle my code and run it on a worker",
-  "package this local project as the variation's code", "ship my training to
-  a managed Chronicle worker". It zips the local project (including `.git`
-  for provenance), registers the zip as the variation's `code_artifact`
-  input, and creates the variation — so the worker pulls the bundle,
-  `pip install`s it, and trains. This is the BUNDLE counterpart to the
-  git-push skills (`chronicle-prep-variation` / `chronicle-author-variation`,
-  which put code in the experiment repo) and to `chronicle-run-variation`
-  (BYO: the agent runs the training itself, no worker). Use this when the
-  worker should run YOUR code but you don't want to (or can't) push it to the
-  experiment repo. It also supersedes the "external git repo + ref" idea:
-  rather than Chronicle authenticating to an outside repo, the agent bundles
-  the checked-out repo itself.
+  Use this skill when an agent has **external** training code — from a
+  3rd-party git repo, or loose packaged code that isn't in Chronicle's
+  managed experiment repo — and wants a **managed Menlo Park worker** to
+  install and run it. Phrases like "bundle my code and run it on a worker",
+  "package this external repo or scripts as the variation's code", "ship my
+  training to a managed Chronicle worker". It snapshots the local project into
+  a zip — an external git checkout (with `.git`, so the commit history rides
+  along as durable provenance) or packaged code not under git at all —
+  registers the zip as the variation's `code_artifact` input, and creates the
+  variation, so the worker pulls the bundle, `pip install`s it, and trains.
+  Prefer this over pointing Chronicle at an external git repo + ref: a
+  3rd-party ref isn't durable (it can be deleted or force-pushed) and may need
+  credentials Chronicle doesn't have, so the agent — which already has the
+  code checked out — captures the bytes into the variation itself. This is the
+  BUNDLE counterpart to the **internal**-repo skills
+  (`chronicle-prep-variation` / `chronicle-author-variation`, which put code in
+  the experiment's managed repo) and to `chronicle-run-variation` (BYO: the
+  agent runs the training itself, no worker). Use this when a managed worker
+  should run external code you don't want to (or can't) put in the managed
+  repo.
 ---
 
 # Bundle variation
 
 Create a variation whose training code is a **bundled archive** that the
-managed Menlo Park worker installs and runs — instead of code pushed to the
-experiment's git repo. The agent zips its local project, registers the zip as
-the variation's `code_artifact` input, and creates the variation. On commit,
-run 0 is dispatched to a worker that downloads the bundle, extracts it,
+managed Menlo Park worker installs and runs — instead of code in the
+experiment's managed git repo. The agent zips its local project, registers the
+zip as the variation's `code_artifact` input, and creates the variation. On
+commit, run 0 is dispatched to a worker that downloads the bundle, extracts it,
 `pip install`s it, auto-scans the `packages:` from the config, and trains.
 
-This collapses "external git repo + ref" into a tarball: rather than Chronicle
-pulling (and authenticating to) an outside repo, the agent — which already has
-the code checked out — bundles it itself. Include `.git` in the zip and the
-commit history rides along as provenance, with no credential problem to solve.
+Use this for **external** code — a 3rd-party git checkout, or packaged code
+that isn't under git at all. Prefer it over pointing Chronicle at an external
+git repo + ref: a 3rd-party ref isn't durable (it can be deleted or
+force-pushed) and may need credentials Chronicle doesn't have, so the agent —
+which already has the code checked out — captures the bytes into the variation
+itself. When the project is a git checkout, `.git` rides along in the zip and
+the commit history is durable provenance; when it isn't under git, the bundle
+is just the packaged code.
 
 ## Archive layout — must match the worker's extractor
 
