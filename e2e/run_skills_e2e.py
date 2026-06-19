@@ -101,7 +101,7 @@ def auth0_bearer(account: dict) -> str:
 def mint_api_key(jwt: str) -> str:
     """Mint a personal `sk_user_*` key (full owner authority — no restriction)."""
     resp = requests.post(
-        f"{CI_URL}/api-keys",
+        f"{CI_URL}/v1/api-keys",
         headers={"Authorization": f"Bearer {jwt}"},
         json={"name": f"{SLUG_PREFIX}-{RUN_ID}", "key_type": "user"},
         timeout=30,
@@ -329,7 +329,10 @@ def distill(api_key: str, exp_id: str, log_dir: pathlib.Path) -> None:
 # --- Assertions over ci REST ------------------------------------------------
 
 def _get(path: str, jwt: str) -> requests.Response:
-    return requests.get(f"{CI_URL}{path}", headers={"Authorization": f"Bearer {jwt}"}, timeout=60)
+    # Canonical /v1 surface — endpoint paths in this file are version-free; the
+    # bare paths still work via the server's LegacyPathCompatLayer but are
+    # deprecated (chronicle api/mod.rs LEGACY_UNVERSIONED_PREFIXES).
+    return requests.get(f"{CI_URL}/v1{path}", headers={"Authorization": f"Bearer {jwt}"}, timeout=60)
 
 
 def assert_experiment(jwt: str, exp_id: str) -> None:
@@ -517,7 +520,7 @@ def assert_searchable(jwt: str, exp_id: str, report: dict) -> None:
     landed = None  # last index-presence reading (True/False/None=unknown)
     while time.time() < deadline:
         r = requests.post(
-            f"{CI_URL}/search",
+            f"{CI_URL}/v1/search",
             headers={"Authorization": f"Bearer {jwt}"},
             json={
                 "query": "damped ripple hidden_dim takeaways",
@@ -563,14 +566,14 @@ def assert_searchable(jwt: str, exp_id: str, report: dict) -> None:
 
 def cleanup(jwt: str, exp_id: str) -> None:
     h = {"Authorization": f"Bearer {jwt}"}
-    r = requests.delete(f"{CI_URL}/experiments/{exp_id}", headers=h, timeout=60)
+    r = requests.delete(f"{CI_URL}/v1/experiments/{exp_id}", headers=h, timeout=60)
     if r.ok:
         print(f"  cleanup: deleted experiment {exp_id}")
         return
     # A committed experiment (or one with variations) can't be deleted (409) —
     # retract it instead so the test leaves no live data behind.
     rr = requests.put(
-        f"{CI_URL}/experiments/{exp_id}/retract",
+        f"{CI_URL}/v1/experiments/{exp_id}/retract",
         headers=h,
         json={"reason": "skills-e2e test cleanup"},
         timeout=60,
