@@ -23,6 +23,13 @@ members can read it. The end state is: the experiment's owner becomes the
 target org (and team, if given), the org-admins role gains `Read` +
 `Administer`, and the chosen visibility's read grant is applied.
 
+## Transport — MCP-direct (no SDK needed)
+
+This skill uses the **bundled MCP tools** directly — no `pip install`. (If the
+`methodic` SDK happens to be installed and you prefer it, the SDK equivalents
+are noted inline.) The bundled launcher resolves credentials from `~/.methodic`
+— see the repo README "The MCP tools (bundled — zero config)".
+
 The move **adds** org reach — it does not strip the original creator. The
 creator keeps full control (their auto-role membership + owner grant), and
 `owner_subject` (billing attribution) is unchanged. This is the natural step
@@ -55,36 +62,29 @@ org-to-org transfer.
 
 ## Workflow
 
-```python
-from methodic import Chronicle
+1. **Resolve the target organization.** Call **`chronicle.list_scopes`** with
+   `{}`. The result (JSON in the tool's text content) is every scope the caller
+   can operate as — their personal space plus each team / org they belong to —
+   each with `id`, `kind`, `name`, `slug`. Filter to `kind == "organization"`
+   and match the org the user named (by slug or name). If exactly one org and
+   the user just said "my org", use it; if the user's phrasing is ambiguous
+   across several orgs, **ask which one** rather than picking the first. Take
+   the matched org's `id` as `organization_id`. Don't guess a UUID.
 
-chronicle = Chronicle.from_env()  # CHRONICLE_SERVER_URL + CHRONICLE_API_KEY
+   *(SDK equivalent: `chronicle.me.scopes()` → typed
+   `Scope(id, kind, name, slug)`.)*
 
-# 1. Resolve the target organization. `chronicle.me.scopes()` returns every
-#    scope the caller can operate as — their personal space plus each team /
-#    org they belong to — as a typed `Scope(id, kind, name, slug)`. Match the
-#    user's named org; don't guess a UUID.
-orgs = [s for s in chronicle.me.scopes() if s.kind == "organization"]
-#    Pick the one the user named (by slug or name); if exactly one org and the
-#    user just said "my org", use it; if ambiguous, ask which one.
-organization_id = ...  # the matched org's id (e.g. orgs[0].id)
+2. **Move.** Call **`chronicle.move_experiment`** with
+   `{ "experiment_id": "<id>", "organization_id": "<org id>" }`. Add
+   `"team_id": "<team id>"` only when a team within that org should own it
+   (the caller must be a member of the team). Add `"visibility": "<value>"`
+   to override the default; **omit it for the org-wide default** (the common
+   "share with my org" case). The result reports the experiment and the org
+   it now belongs to.
 
-# 2. Move. Omit `visibility` for the org-wide default; pass it to override.
-result = chronicle.experiments.move(
-    experiment_id,
-    organization_id=organization_id,
-    team_id=team_id,            # optional; None for org-direct
-    visibility=visibility,      # optional; None = scope-derived (org-wide)
-)
-print(f"Moved {result['experiment_id']} to org {result['organization_id']}")
-```
-
-The handle form is equivalent and chains:
-
-```python
-exp = chronicle.experiments.get(experiment_id)  # or any Experiment handle
-exp.move(organization_id=organization_id, visibility="organization")
-```
+   *(SDK equivalent: `chronicle.experiments.move(experiment_id,
+   organization_id=..., team_id=..., visibility=...)`, or the handle form
+   `chronicle.experiments.get(experiment_id).move(...)`.)*
 
 ## After the skill completes
 
@@ -112,17 +112,15 @@ Tell the user:
   (`PUT /v1/experiments/{id}`), then re-run the move.
 - **403 — "caller is not a member of organization_id/team_id …"**: you can't
   move an experiment into a scope you don't belong to. Re-resolve the target
-  against `chronicle.me.scopes()` (the caller's actual memberships); if the
+  against **`chronicle.list_scopes`** (the caller's actual memberships); if the
   user genuinely isn't a member, they need to be added to the org/team first.
 - **404**: either the experiment doesn't exist, or the caller lacks
   `Administer` on it (the server hides existence behind 404 on an authz
   miss). Confirm the id; if it's right, the caller needs `Administer` (they
   must be the experiment's owner/admin to give it away).
-- **Wrong org picked**: if `chronicle.me.scopes()` returned several orgs and
+- **Wrong org picked**: if **`chronicle.list_scopes`** returned several orgs and
   the user's phrasing was ambiguous, ask which one rather than picking the first.
 
 ## Requires
 
-- `pip install methodic-research` (≥ 0.10.0 — `experiments.move` + `me.scopes`)
-- `CHRONICLE_API_KEY` exported (or `methodic auth login` already done)
-- No `git` — this is an API-only operation.
+Nothing to install — uses the bundled MCP tools. (API-only operation; no `git`.)

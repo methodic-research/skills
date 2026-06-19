@@ -33,6 +33,21 @@ removes its link rows, which can turn its assets into deletable orphans.
 **Delete is irreversible.** Always show the concrete asset list and get an
 explicit confirmation first.
 
+## Transport — MCP-direct (no SDK needed)
+
+This skill uses the **bundled MCP tools** directly — no `pip install`. (If the
+`methodic` SDK happens to be installed and you prefer it, the SDK equivalents
+are noted inline.) The bundled launcher resolves credentials from `~/.methodic`
+— see the repo README "The MCP tools (bundled — zero config)".
+
+`chronicle.delete_asset` is **creator-guarded**: via MCP an agent may only
+hard-delete assets *it created*, even where `Delete` RBAC would allow more; the
+SDK/HTTP path is the escape hatch for the rest. The unlinked-only gate (and the
+per-table link counts on a 409) is identical in both paths. The validity
+alternatives — `deprecate` (soft warning) / `invalidate` (hard input-block) —
+stay **SDK/HTTP-only** (`chronicle.assets.deprecate` / `chronicle.assets.invalidate`,
+wrapping `PUT /v1/assets/{id}/deprecate|invalidate`).
+
 ## Inputs
 
 - **`asset_ids`** — one or more asset UUIDs. Resolve in order:
@@ -46,42 +61,31 @@ explicit confirmation first.
 
 ## Workflow
 
-```python
-from methodic import Chronicle
-from methodic.errors import ConflictError, NotFoundError
+1. **Preview EXACTLY what will be deleted** — name, type, state, uri. There is
+   **no MCP tool to fetch a single asset's metadata**; use the SDK
+   `chronicle.assets.get(asset_id)` for the preview if it's available (each
+   result carries `id`, `state`, `asset_type`, `name`). If you only have ids
+   (no SDK), show the user the concrete ids you're about to delete. Either way,
+   present the list, then ask: **"Permanently delete these N assets, their
+   storage bytes included? This cannot be undone."** Proceed only on an
+   explicit yes.
 
-chronicle = Chronicle.from_env()  # CHRONICLE_SERVER_URL + CHRONICLE_API_KEY
+2. **Delete.** For each asset, call **`chronicle.delete_asset`** with
+   `{ "asset_id": "<id>" }`. The server is the source of truth on linkage —
+   don't try to pre-compute it; a **409 IS the "still linked" answer** (with
+   per-table counts). Sort the outcomes into deleted, linked-skipped (409),
+   already-gone (404 — fine in a cleanup loop), and failed (403 etc.).
 
-# 1. Preview EXACTLY what will be deleted — name, type, state, uri.
-for asset_id in asset_ids:
-    a = chronicle.assets.get(asset_id)
-    print(f"{a['id']}  [{a['state']}]  {a['asset_type']}  {a['name']}")
-#    --> Present this list, then ask: "Permanently delete these N assets,
-#        their storage bytes included? This cannot be undone." Proceed only
-#        on an explicit yes.
+   *(SDK equivalent: `chronicle.assets.delete(asset_id)`, catching
+   `ConflictError` / `NotFoundError`.)*
 
-# 2. Delete. The server is the source of truth on linkage — don't try to
-#    pre-compute it; a 409 IS the "still linked" answer (with counts).
-deleted, linked, missing, failed = [], [], [], []
-for asset_id in asset_ids:
-    try:
-        summary = chronicle.assets.delete(asset_id)
-        deleted.append((asset_id, summary))
-    except ConflictError as err:   # 409 — linked somewhere
-        linked.append((asset_id, str(err)))
-    except NotFoundError:          # already gone; fine in a cleanup loop
-        missing.append(asset_id)
-    except Exception as err:       # 403 etc.
-        failed.append((asset_id, str(err)))
+3. **For anything still linked that the user wants out of use anyway**, the
+   validity alternatives are **SDK/HTTP-only** (no MCP tool):
+   `chronicle.assets.invalidate(asset_id, reason="wrong data — do not build on")`
+   (hard input-block) or `chronicle.assets.deprecate(asset_id, reason=...)`
+   (soft warning). Both preserve the row and provenance.
 
-# 3. For anything still linked that the user wants out of use anyway:
-# chronicle.assets.invalidate(asset_id, reason="wrong data — do not build on")
-# (hard input-block), or chronicle.assets.deprecate(asset_id, reason=...)
-# (soft warning). Both preserve the row and provenance.
-
-print(f"deleted {len(deleted)}; linked-skipped {len(linked)}; "
-      f"already-gone {len(missing)}; failed {len(failed)}")
-```
+4. **Report** how many were deleted, linked-skipped, already-gone, and failed.
 
 ## After the skill completes
 
@@ -107,19 +111,10 @@ Tell the user:
 - **Wrong target**: the confirmation preview is the safety net — re-list
   and re-confirm rather than guessing; deletion is unrecoverable.
 
-## MCP-native agents
-
-An agent driving Chronicle through the MCP server has
-`chronicle.delete_asset(asset_id)` — the same unlinked-only gate, with the
-**creator guard** from `chronicle.delete_experiment`: via MCP an agent may
-only hard-delete assets *it created*, even where `Delete` RBAC would allow
-more; the SDK/HTTP path is the escape hatch for the rest. Linked-asset
-refusals carry the same per-table counts in the error message. The validity
-alternatives stay SDK/HTTP-only (`assets.deprecate` / `assets.invalidate`
-wrap `PUT /v1/assets/{id}/deprecate|invalidate`).
-
 ## Requires
 
-- `pip install methodic-research` (≥0.13 — `assets.delete/deprecate/invalidate`)
-- `CHRONICLE_API_KEY` exported (or `methodic auth login` already done)
-- No `git` — API-only; storage purge happens server-side.
+Nothing to install for the delete itself — `chronicle.delete_asset` is a
+bundled MCP tool. The optional **preview fetch** and the **deprecate/invalidate
+alternatives** have no MCP tool yet and need the `methodic` SDK
+(`chronicle.assets.get` / `chronicle.assets.deprecate` / `chronicle.assets.invalidate`).
+(API-only; storage purge happens server-side; no `git`.)

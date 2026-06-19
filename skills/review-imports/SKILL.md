@@ -23,7 +23,25 @@ enrichment pass annotates **tables and equations** with two models plus a
 disagreements, and `requires_human_review` flags. This skill is the human
 side of that loop: see what was flagged and decide.
 
-Where the state lives (all on the asset):
+## Transport — MCP-direct (hybrid)
+
+Triage uses the **bundled MCP tool** `chronicle.review_import` directly — no
+`pip install` for the inspection pass. It returns the per-import extraction +
+enrichment state and the flagged objects (with their unified annotations and
+disagreements) so you don't have to presign and fetch
+`index/review_items.ndjson` / `annotations/unified/*.json` by hand. (If the
+`methodic` SDK is installed, the manual presign+fetch SDK equivalent is noted
+inline.)
+
+This skill is **HYBRID**: the *action* half has no MCP tool. Asset
+`accept`/`deprecate`/`invalidate`/`approve`/`reject` are **SDK-only** —
+keep them on the `methodic` SDK. The server-side re-enqueue is admin-only and
+goes through the **REST surface** directly (same posture as the
+`*-error-queue` skills). So: MCP for triage/inspection; SDK for the lifecycle
+actions; REST for re-enqueue.
+
+Where the state lives (all on the asset; `chronicle.review_import` surfaces
+it for you):
 
 - `asset_config.extraction.status` — `layout` (full pipeline) /
   `text_layer` / `ocr` (flat fallbacks) / `failed` (+ `reason`).
@@ -38,75 +56,56 @@ Where the state lives (all on the asset):
 ## Inputs
 
 - **`asset_ids`** — resolve in order: explicit ids; the ids reported by a
-  prior chronicle-import-reports run; or search
-  (`chronicle.search.query("...", filters={"asset_types":
-  ["imported_report"], "organization_id": org})`) — there is no SDK
-  `assets.list` yet, so org-wide listing goes through search or the
-  import summary.
+  prior chronicle-import-reports run; or search (`chronicle.search` with
+  `{ "query": "...", "filters": { "asset_types": ["imported_report"],
+  "organization_id": org } }`) — there is no `assets.list` tool yet, so
+  org-wide listing goes through search or the import summary.
 - **`organization`** — for context/reporting; resolve as in
   chronicle-import-reports.
 
 ## Workflow
 
-```python
-import json
-import requests
-from methodic import Chronicle
+1. **Triage each import.** For each `asset_id`, call
+   **`chronicle.review_import`** with `{ "asset_id": "<asset_id>" }`. The
+   result is JSON in the tool's text content carrying the asset's
+   extraction + enrichment state and — when `review_pending` — the flagged
+   objects already joined to their unified annotations (so no manual
+   presign + NDJSON parse). Bucket the results:
+   - `extraction.status == "failed"` → record `(asset_id, reason)` as a
+     failed extraction; skip the rest.
+   - `enrichment.review_pending` falsy → clean; no action.
+   - otherwise → flagged: keep `(asset_id, name, flagged_items[])` where
+     each item carries its `unified` annotation (LaTeX / table columns) and
+     `disagreements`.
 
-chronicle = Chronicle.from_env()
+   *(SDK equivalent — the manual fetch path when the tool isn't available:
+   `a = chronicle.assets.get(asset_id)` → read `asset_config.extraction` /
+   `.enrichment`; then `chronicle.assets.presign(asset_id, operation="read",
+   components=["index/review_items.ndjson"])`, GET the url, parse each
+   NDJSON line, map `object_id` "...:page:0042:object:0003" → component key
+   "p0042-o0003", presign + GET `annotations/unified/<key>.json` for each
+   flagged object's reconciled annotation.)*
 
-flagged, clean, failed_extractions = [], [], []
-for asset_id in asset_ids:
-    a = chronicle.assets.get(asset_id)
-    cfg = a.get("asset_config") or {}
-    extraction = cfg.get("extraction") or {}
-    enrichment = cfg.get("enrichment") or {}
+2. **Present each flagged object to the user**: page, reason, confidence,
+   the transcribed LaTeX / table columns, and any model disagreements
+   (`unified["disagreements"]` — field, both values, resolution).
 
-    if extraction.get("status") == "failed":
-        failed_extractions.append((asset_id, extraction.get("reason", "?")))
-        continue
-    if not enrichment.get("review_pending"):
-        clean.append(asset_id)
-        continue
+3. **Route actions** (SDK-only — no MCP tool for these):
+   - **Looks right** → no action needed; flags are advisory.
+   - **Import is wrong/garbage** → keep provenance, take it out of use:
+     `chronicle.assets.deprecate(asset_id, reason="bad scan — superseded")`,
+     or `chronicle.assets.invalidate(asset_id, reason=…)` for a hard
+     input-block.
+   - **Review-GATED import** (registered with `pending_reasons:
+     ["review_required"]`) → lifecycle action: `chronicle.assets.approve(
+     asset_id)` clears the gate + finalizes, or
+     `chronicle.assets.reject(asset_id, reason=…)` abandons it.
 
-    # Pull the review items + each flagged object's unified annotation.
-    urls = chronicle.assets.presign(
-        asset_id, operation="read", components=["index/review_items.ndjson"]
-    )
-    items_url = urls["index/review_items.ndjson"]["url"]
-    items = [json.loads(l) for l in requests.get(items_url, timeout=30).text.splitlines() if l]
-    for item in items:
-        # object_id "...:page:0042:object:0003" → component key "p0042-o0003"
-        parts = item["object_id"].split(":")
-        key = f"p{parts[-3]}-o{parts[-1]}"
-        ann_component = f"annotations/unified/{key}.json"
-        ann_url = chronicle.assets.presign(
-            asset_id, operation="read", components=[ann_component]
-        )[ann_component]["url"]
-        item["unified"] = requests.get(ann_url, timeout=30).json()
-    flagged.append((asset_id, a.get("name"), items))
-
-# Present each flagged object to the user: page, reason, confidence, the
-# transcribed LaTeX / table columns, and any model disagreements
-# (unified["disagreements"] — field, both values, resolution). Then act:
-#
-# 1. Looks right → no action needed; flags are advisory.
-# 2. Import is wrong/garbage → keep provenance, take it out of use:
-#    chronicle.assets.deprecate(asset_id, reason="bad scan — superseded")
-#    # or .invalidate(...) for a hard input-block.
-# 3. Review-GATED import (registered with pending_reasons
-#    ["review_required"]) → lifecycle action:
-#    chronicle.assets.approve(asset_id)            # clears gate, finalizes
-#    chronicle.assets.reject(asset_id, reason=...) # abandons it
-```
-
-Re-running the server side (extraction or enrichment) after a fix is an
-**admin jobs** call — not yet SDK-wrapped (same posture as the
-`*-error-queue` skills), so a superadmin session uses the REST surface
-directly: `POST /v1/admin/jobs` with
-`{"job_type": "pdf_extraction" | "report_enrichment", "config":
-{"asset_ids": [...]}}`. Already-extracted rows are skipped (idempotent);
-`failed` rows retry.
+4. **Re-run the server side** (extraction or enrichment) after a fix —
+   admin-only, **REST surface** directly (not MCP, not SDK-wrapped): a
+   superadmin session POSTs `/v1/admin/jobs` with `{"job_type":
+   "pdf_extraction" | "report_enrichment", "config": {"asset_ids": [...]}}`.
+   Already-extracted rows are skipped (idempotent); `failed` rows retry.
 
 ## After the skill completes
 
@@ -135,8 +134,11 @@ Tell the user, per org:
 
 ## Requires
 
-- `pip install methodic-research` (≥0.13 — `assets.get/presign/approve/
-  reject/deprecate/invalidate`) and `requests` for presigned-URL fetches
+- The bundled MCP tool `chronicle.review_import` for triage (no install).
+- `pip install methodic-research` (≥0.13 — `assets.approve/reject/
+  deprecate/invalidate`) for the action half, since those have no MCP tool.
+  `requests` only if you fall back to the manual presign+fetch SDK path
   (blob reads, not Chronicle API calls).
-- `CHRONICLE_API_KEY`; superadmin key only for the re-enqueue path.
+- `CHRONICLE_API_KEY` (or credentials in `~/.methodic`); superadmin key
+  only for the re-enqueue path.
 - No `git`.

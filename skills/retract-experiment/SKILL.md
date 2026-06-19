@@ -35,10 +35,22 @@ Downstream effects worth telling the user about:
 
 - New experiments cannot list a retracted experiment as a parent unless
   they pass `allow_retracted_parent: true`.
-- Descendant experiments can check exposure via
-  `GET /v1/experiments/{id}/upstream-retractions`
-  (`chronicle.experiments.get_upstream_retractions(id)` in the SDK).
+- Descendant experiments can check exposure via the lineage
+  (`chronicle.get_lineage` surfaces retracted ancestors;
+  `chronicle.experiments.get_upstream_retractions(id)` in the SDK).
 - The retraction reason is indexed — searches surface it.
+
+## Transport — MCP-direct (no SDK needed)
+
+This skill uses the **bundled MCP tools** directly — no `pip install`. (If the
+`methodic` SDK happens to be installed and you prefer it, the SDK equivalents
+are noted inline.) The bundled launcher resolves credentials from `~/.methodic`
+— see the repo README "The MCP tools (bundled — zero config)".
+
+`chronicle.retract_experiment` is plain `Delete`-gated RBAC — **no creator
+guard** (unlike `chronicle.delete_experiment`), because retraction preserves
+the record, so any holder of `Delete` may flag it. **Variation-level retraction
+has no MCP tool yet — use the SDK (`chronicle.variations.retract`) for that.**
 
 ## Inputs
 
@@ -60,33 +72,38 @@ Downstream effects worth telling the user about:
 
 ## Workflow
 
-```python
-from methodic import Chronicle
+1. **Show the user what they're about to retract.** Call
+   **`chronicle.get_experiment`** with `{ "experiment_id": "<id>" }`. The
+   result (JSON in the tool's text content) is an `ExperimentDetail` whose
+   `experiment` carries `id`, `state`, `hypothesis_summary`, and
+   `retracted_at` / `retraction_reason`. Surface those — and if `retracted_at`
+   is already set, note that proceeding just **updates the reason** (retraction
+   is idempotent). Get an explicit go-ahead before flagging.
 
-chronicle = Chronicle.from_env()  # CHRONICLE_SERVER_URL + CHRONICLE_API_KEY
+   *(SDK equivalent: `chronicle.experiments.get(experiment_id)` →
+   `detail.experiment`.)*
 
-# 1. Show the user what they're about to retract.
-detail = chronicle.experiments.get(experiment_id)
-e = detail.experiment
-print(f"{e.id}  [{e.state}]  {e.hypothesis_summary!r}")
-if e.retracted_at:
-    print(f"already retracted: {e.retraction_reason!r} — proceeding updates the reason")
+2. **On explicit confirmation, retract the experiment.** Call
+   **`chronicle.retract_experiment`** with
+   `{ "experiment_id": "<id>", "reason": "<reason>" }`. The **`reason` is
+   required and must be non-empty** — written for the *next* researcher (what
+   is wrong and what invalidated it), not just "bad". Add
+   `"document_asset_id": "<id>"` when a fuller `retraction_report` writeup
+   exists. The result reports how many output assets were invalidated.
 
-# 2. On explicit confirmation: retract the experiment...
-result = chronicle.experiments.retract(
-    experiment_id,
-    reason=reason,                        # required, non-empty
-    document_asset_id=document_asset_id,  # optional retraction_report
-)
-print(f"retracted; outputs invalidated: {result['outputs_invalidated']}")
+   *(SDK equivalent: `chronicle.experiments.retract(experiment_id,
+   reason=..., document_asset_id=...)`.)*
 
-# ...or just one variation:
-# chronicle.variations.retract(experiment_id, variation, reason=reason)
-# (also available pre-bound: exp.variations.retract(variation, reason=...))
+   To retract **just one variation** instead, there is **no MCP tool** — use
+   the SDK: `chronicle.variations.retract(experiment_id, variation, reason=...)`
+   (also pre-bound as `exp.variations.retract(variation, reason=...)`).
 
-# 3. Optionally show what downstream work is now exposed:
-exposed = chronicle.experiments.get_upstream_retractions(experiment_id)
-```
+3. **Optionally show what downstream work is now exposed.** Call
+   **`chronicle.get_lineage`** with `{ "experiment_id": "<id>" }` and surface
+   any descendants/ancestors affected.
+
+   *(SDK equivalent:
+   `chronicle.experiments.get_upstream_retractions(experiment_id)`.)*
 
 ## After the skill completes
 
@@ -109,25 +126,14 @@ Tell the user:
 - **404** — no such experiment (bad id, or it was hard-deleted as an open
   draft).
 - **Retracted the wrong scope** — experiment-level retraction covers every
-  variation; if only one variation was wrong, that's
-  `chronicle.variations.retract(...)`. There is no un-retract endpoint, so
-  confirm scope before flagging (re-retracting can update the reason, but
-  the flag itself stays).
-
-## MCP-native agents
-
-An agent driving Chronicle through the MCP server (not the Python SDK) has
-`chronicle.retract_experiment(experiment_id, reason, document_asset_id?)` —
-the same `Delete`-gated soft flag, output invalidation, teardown, and repo
-archival as the SDK/HTTP path, and the same idempotent reason update. Note
-the split on the autonomous path: `chronicle.delete_experiment` carries a
-creator guard (an agent may only hard-delete drafts it created), while
-`chronicle.retract_experiment` is plain RBAC — retraction preserves the
-record, so any holder of `Delete` may flag it. Variation-level retraction
-has no MCP tool yet; use the SDK for that.
+  variation; if only one variation was wrong, that's the SDK
+  `chronicle.variations.retract(...)` (no MCP tool yet). There is no un-retract
+  endpoint, so confirm scope before flagging (re-retracting can update the
+  reason, but the flag itself stays).
 
 ## Requires
 
-- `pip install methodic-research`
-- `CHRONICLE_API_KEY` exported (or `methodic auth login` already done)
-- No `git` — API-only; the repo archival happens server-side.
+Nothing to install — uses the bundled MCP tools, **except** variation-level
+retraction, which has no MCP tool yet and needs the `methodic` SDK
+(`chronicle.variations.retract`). (API-only; the repo archival happens
+server-side; no `git`.)
