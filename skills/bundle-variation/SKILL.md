@@ -149,6 +149,9 @@ Tell the user:
 4. If a `packages:` entry won't import after installing `code_dir`, the run
    fails fast with that `ModuleNotFoundError` — fix the package name or the
    project layout before committing.
+5. To later switch this variation to git-managed code instead of the bundle
+   (while it's still open), use `chronicle-rebind-variation-git`: it binds a
+   pushed branch and cleans up this bundle artifact.
 
 ## Failure modes
 
