@@ -36,7 +36,7 @@ Downstream effects worth telling the user about:
 - New experiments cannot list a retracted experiment as a parent unless
   they pass `allow_retracted_parent: true`.
 - Descendant experiments can check exposure via
-  `GET /experiments/{id}/upstream-retractions`
+  `GET /v1/experiments/{id}/upstream-retractions`
   (`chronicle.experiments.get_upstream_retractions(id)` in the SDK).
 - The retraction reason is indexed — searches surface it.
 
