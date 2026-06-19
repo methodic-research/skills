@@ -116,7 +116,7 @@ only hard-delete assets *it created*, even where `Delete` RBAC would allow
 more; the SDK/HTTP path is the escape hatch for the rest. Linked-asset
 refusals carry the same per-table counts in the error message. The validity
 alternatives stay SDK/HTTP-only (`assets.deprecate` / `assets.invalidate`
-wrap `PUT /assets/{id}/deprecate|invalidate`).
+wrap `PUT /v1/assets/{id}/deprecate|invalidate`).
 
 ## Requires
 

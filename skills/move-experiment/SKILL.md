@@ -109,7 +109,7 @@ Tell the user:
 - **409 — "an experiment with slug '<x>' already exists in the target
   organization …"**: the experiment's slug collides with one the org already
   owns. The user must rename this experiment's slug first
-  (`PUT /experiments/{id}`), then re-run the move.
+  (`PUT /v1/experiments/{id}`), then re-run the move.
 - **403 — "caller is not a member of organization_id/team_id …"**: you can't
   move an experiment into a scope you don't belong to. Re-resolve the target
   against `chronicle.me.scopes()` (the caller's actual memberships); if the
