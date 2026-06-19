@@ -468,29 +468,100 @@ def assert_report_pulled_wandb(report: dict) -> None:
     print("  takeaways_report looks distilled (pending/review-gated).")
 
 
-def assert_searchable(jwt: str, exp_id: str) -> None:
-    """POST /search and poll until the report surfaces — the one assertion that
-    exercises the real Vertex push (indexing is eventually consistent). A `got
-    []`/timeout here is Vertex propagation latency, not a code regression."""
+def _index_present(jwt: str, doc_id: str) -> bool | None:
+    """Deterministic `documents.get` against the Vertex index via
+    `GET /v1/assets/{id}?index_status=true` (edison PR #110): did the index
+    write actually land? Returns True if present (search serving may still be
+    catching up), False if genuinely absent, or None when the signal is
+    unavailable (endpoint missing, Vertex unconfigured, or a non-indexable
+    type — the field comes back `null`)."""
+    r = requests.get(
+        f"{CI_URL}/v1/assets/{doc_id}?index_status=true",
+        headers={"Authorization": f"Bearer {jwt}"},
+        timeout=30,
+    )
+    if not r.ok:
+        return None
+    return r.json().get("index_present")
+
+
+def assert_searchable(jwt: str, exp_id: str, report: dict) -> None:
+    """POST /search and poll until *this experiment's* takeaways_report surfaces
+    — the one assertion that exercises the real Vertex push.
+
+    Two things make this robust instead of flaky:
+
+    1. **Rank-immune request.** `asset_types` at the TOP level of the body is
+       silently ignored (SearchRequest only reads it nested under `filters`),
+       so the old request ran unfiltered against the default page_size=20 — the
+       experiment's report had to out-rank every other "damped ripple" doc in
+       the ci index for 20 slots, which no timeout fixes. We send the real
+       nested filter, page_size 50, and `experiment_context` so lineage
+       boosting floats this experiment's own docs.
+
+    2. **Identity match, not substring.** We match the hit's `document_id`
+       against the takeaways asset's own id (the report dict from
+       `wait_for_distillation`), not `exp_id in json.dumps(hit)`. That is the
+       precise "is *my* doc indexed?" question and can't be satisfied by a
+       sibling doc that merely mentions the experiment.
+
+    3. **Deterministic presence fallback.** Search is eventually-consistent;
+       the index *write* is not. On every miss we also probe `_index_present`
+       (documents.get). If the doc is in the index we pass — the write landed
+       and only serving-side search is lagging, which is Vertex's SLA, not our
+       bug. We fail hard only when documents.get *also* says absent: that is the
+       genuine write-report->index miss. Measured on ci (2026-06-13): an inline
+       `POST /assets` takeaways indexes in ~12s, but the agent/write-report path
+       intermittently lags far longer under full-run load. The diagnostic then
+       reports index_present rather than guessing about propagation."""
+    doc_id = report.get("id")
     deadline = time.time() + SEARCH_WAIT_SECS
     last = "no hit"
+    landed = None  # last index-presence reading (True/False/None=unknown)
     while time.time() < deadline:
         r = requests.post(
             f"{CI_URL}/v1/search",
             headers={"Authorization": f"Bearer {jwt}"},
-            json={"query": "damped ripple hidden_dim takeaways", "asset_types": ["takeaways_report"]},
+            json={
+                "query": "damped ripple hidden_dim takeaways",
+                "filters": {"asset_types": ["takeaways_report"]},
+                "experiment_context": [exp_id],
+                "page_size": 50,
+            },
             timeout=60,
         )
         if r.ok:
             hits = r.json().get("results", r.json()) if isinstance(r.json(), dict) else r.json()
-            if any(exp_id in json.dumps(h) for h in hits):
+            if any(h.get("document_id") == doc_id for h in hits):
                 print("  takeaways_report discoverable in search (real Vertex push).")
                 return
-            last = f"{len(hits)} hits, none for {exp_id}"
+            last = f"{len(hits)} takeaways hits, none with document_id={doc_id}"
         else:
             last = _dump("search", r)
+        # Search not back yet — ask the index directly. A landed write is the
+        # contract we own; serving-side search lag is Vertex's, not ours.
+        landed = _index_present(jwt, doc_id)
+        if landed:
+            print(
+                "  takeaways_report present in the Vertex index (documents.get) — "
+                "the write landed; serving search is still catching up. Not a regression."
+            )
+            return
         time.sleep(15)
-    raise Fail(f"takeaways_report not searchable within {SEARCH_WAIT_SECS}s; last: {last}")
+    if landed is False:
+        raise Fail(
+            f"takeaways_report {doc_id} (state={report.get('state')!r}) never indexed "
+            f"within {SEARCH_WAIT_SECS}s: GET /v1/assets/{{id}}?index_status=true still "
+            f"reports index_present=false. The asset exists via the API but its Vertex "
+            f"document was never pushed — a real write-report->index bug, not propagation "
+            f"latency or a query/rank problem. (last search: {last})"
+        )
+    raise Fail(
+        f"takeaways_report {doc_id} (state={report.get('state')!r}) not searchable within "
+        f"{SEARCH_WAIT_SECS}s and the index-presence probe was inconclusive "
+        f"(index_present={landed!r} — index_status endpoint or Vertex unavailable). "
+        f"last search: {last}."
+    )
 
 
 def cleanup(jwt: str, exp_id: str) -> None:
@@ -548,7 +619,7 @@ def main() -> int:
         distill(api_key, exp_id, log_dir)  # distill turn: write-report pulls W&B agent-side
         report = wait_for_distillation(jwt, exp_id)
         assert_report_pulled_wandb(report)
-        assert_searchable(jwt, exp_id)
+        assert_searchable(jwt, exp_id, report)
         print("\nPASS skills-e2e")
         return 0
     finally:
