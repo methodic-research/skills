@@ -1,7 +1,7 @@
 {
   "$schema": "https://code.claude.com/schemas/marketplace.json",
   "name": "methodic",
-  "description": "Methodic platform plugins for Claude Code \u2014 skills + (eventually) MCP server for working with Chronicle experiments.",
+  "description": "Methodic platform plugins for Claude Code \u2014 skills + a bundled MCP server (call Chronicle directly, no SDK install) for working with Chronicle experiments.",
   "owner": {
     "name": "Methodic Labs",
     "email": "support@methodiclabs.ai"
