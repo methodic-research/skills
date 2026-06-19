@@ -19,37 +19,43 @@ any asset or experiment for filtering. The same tag can mark many objects across
 asset types and experiments. Tags are **not** access controls — you need
 `Write` on the *object* to tag it; the tag itself grants nothing.
 
-Thin wrapper over the SDK's `chronicle.tags` namespace + `chronicle.search`.
 **User-request-driven**: only tag or tag-filter when the user asks.
+
+## Transport — MCP-direct (no SDK needed)
+
+This skill uses the **bundled MCP tools** directly — no `pip install`. (If the
+`methodic` SDK happens to be installed and you prefer it, the SDK equivalents are
+noted inline.) The bundled launcher resolves credentials from `~/.methodic` — see
+the repo README "The MCP tools (bundled — zero config)".
 
 ## Tag + untag (by name — find-or-create)
 
-```python
-from methodic import Chronicle
-chronicle = Chronicle.from_env()
+1. Call **`chronicle.tag`** with the object and the tag keyword — e.g.
+   `{ "asset_id": "<asset_id>", "tag": "turbulence" }` for an asset, or
+   `{ "experiment_id": "<exp_id>", "tag": "negative-result" }` for an experiment.
+   By name it finds or creates the tag in the object's scope. You need `Write` on
+   the object — the tag itself grants nothing. To remove, call the same tool in
+   its remove mode (e.g. pass the tag to detach); the result (JSON in the tool's
+   text content) confirms the object + tag affected.
 
-chronicle.tags.tag_asset(asset_id, tag="turbulence")        # by name → finds or creates the tag in scope
-chronicle.tags.tag_experiment(exp_id, tag="negative-result")
-chronicle.tags.untag_asset(asset_id, tag_id)
-```
-
-`list(...)` autocompletes the scope's vocabulary; `objects(tag_id)` lists what
-carries a tag; `asset_tags(asset_id)` / `experiment_tags(exp_id)` list an
-object's tags; `rename` / `delete` manage the vocabulary.
+   *(SDK equivalent: `chronicle.tags.tag_asset(asset_id, tag="turbulence")` /
+   `chronicle.tags.tag_experiment(exp_id, tag="negative-result")` /
+   `chronicle.tags.untag_asset(asset_id, tag_id)`. The SDK also exposes
+   vocabulary helpers — `list(...)`, `objects(tag_id)`,
+   `asset_tags(asset_id)` / `experiment_tags(exp_id)`, `rename`, `delete` — with
+   no bundled-MCP equivalent; reach for the SDK or CLI if the user wants to
+   browse or manage the tag vocabulary.)*
 
 ## Filter a search by tag — only when asked
 
-```python
-hits = chronicle.search.query("boundary layer",
-                              filters={"tags": ["turbulence", "pinn"]})   # tag: ANY(...)
-```
-Default behaviour is a **broad search** (no tag filter). Add a `tags` filter only
-on an explicit "search only things tagged …" request.
+2. Call **`chronicle.search`** with `{ "query": "boundary layer",
+   "filters": { "tags": ["turbulence", "pinn"] } }` — this is tag `ANY(...)`.
 
-## MCP-native agents
+   Default behaviour is a **broad search** (no tag filter). Add a `tags` filter
+   only on an explicit "search only things tagged …" request.
 
-`chronicle.tag` applies/removes a tag; `chronicle.search` `filters.tags` narrows
-by tag. Same user-request-driven rule; you need `Write` on the object.
+   *(SDK equivalent: `chronicle.search.query("boundary layer",
+   filters={"tags": ["turbulence", "pinn"]})`.)*
 
 ## After the skill completes
 
@@ -58,6 +64,4 @@ search — that results were restricted to those tags.
 
 ## Requires
 
-- `pip install methodic-research` (the `chronicle.tags` namespace + `search(filters={"tags": …})`)
-- `CHRONICLE_API_KEY` + `CHRONICLE_SERVER_URL` exported (or `methodic auth login`)
-- CLI equivalent: `chronicle tags …`
+Nothing to install — uses the bundled MCP tools.
