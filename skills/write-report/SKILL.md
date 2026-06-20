@@ -225,6 +225,9 @@ Tell the user:
    record — if the agent left it near-empty, say so, so the user can fill
    it in rather than discovering the omission later.
 
+To share this report with a specific person or team, or make it public —
+without exposing the whole experiment — use **`chronicle-share`**.
+
 ## Failure modes
 
 - **`create_with_presigned` / `create_inline` 403** — the caller lacks
