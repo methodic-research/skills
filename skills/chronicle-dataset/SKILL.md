@@ -2,16 +2,22 @@
 name: chronicle-dataset
 description: |
   Use this skill when the user (or an agent flow) wants to upload a dataset /
-  training data / reference field to a Chronicle experiment, or to load one
-  back. Phrases like "upload this dataset", "register the training data",
-  "attach this .npz as an input to the variation", "add the reference field",
-  "load the dataset for experiment X", "download the dataset". A dataset is a
-  binary asset (e.g. an `.npz`) uploaded via the presigned-PUT flow with a
-  recorded provenance record (per-component sha256 + size), then linked as an
-  experiment- or variation-level **input**. A directory uploads as one
-  component per file — the way to shard GB-scale data. For *reports* /
-  write-ups use chronicle-write-report; for authoring a variation's *config*
-  use chronicle-author-variation. This is the data counterpart to those.
+  training data / reference field to a Chronicle experiment, load one back,
+  **register a dataset that already lives in GCS** (no upload), or **describe /
+  update a dataset's metadata** so it's searchable. Phrases like "upload this
+  dataset", "register the training data", "attach this .npz as an input to the
+  variation", "register the dataset already in gs://…", "describe this dataset
+  (the PDE it models, boundary conditions, variables)", "make this dataset
+  searchable", "fix the dataset's metadata", "load the dataset for experiment
+  X", "download the dataset". A dataset is a binary asset
+  (`asset_type="dataset"`) — uploaded via presigned PUT, or **registered by
+  reference** to existing gs://|s3:// bytes — carrying an author-declared,
+  searchable **metadata layer** (description with LaTeX, PDE, boundary/initial
+  conditions, per-variable shape/dtype/precision, properties) plus a provenance
+  record, then linked as an experiment- or variation-level **input**. A
+  directory uploads as one component per file — the way to shard GB-scale data.
+  For *reports* use chronicle-write-report; for a variation's *config* use
+  chronicle-author-variation. This is the data counterpart to those.
 ---
 
 # Dataset upload + load
@@ -22,11 +28,87 @@ thin orchestration over the SDK's `chronicle.datasets` namespace; it never
 makes raw HTTP calls.
 
 Datasets are plain assets (`asset_type="dataset"`): there is no separate
-dataset table. They are search-indexed on **metadata only** — the dataset's
-name + provenance record, never the bytes — and become discoverable in search
-once linked (or output-stamped), alongside discovery through the
-experiment/variation link. The upload records a provenance record on the asset
-so the bytes are verifiable later.
+dataset table. They carry a searchable, author-declared **metadata layer** (a
+`metadata` document — see below) and are **full-text + semantically indexed on
+that metadata** (the description, PDE, conditions, variable names, properties),
+never the bytes. They're discoverable via `chronicle.search`
+(`asset_types=["dataset"]` + facets like `precisions`, `pde_family`,
+`properties`) and via the dataset catalog, in addition to the
+experiment/variation link. The upload also records a provenance record
+(per-component sha256 + size) so the bytes are verifiable later.
+
+## Dataset metadata layer (this is what makes it searchable)
+
+Beyond the bytes, a dataset carries an author-declared `metadata` document
+(stored on `asset_config.metadata`) projected to Vertex search facets + the
+promoted listing columns. **Author it** — this is the taste that makes a
+physics dataset discoverable. Pass `metadata=` to `upload` / `register` /
+`register_by_reference`, or set it later with `update_metadata`. Shape:
+
+```python
+metadata = {
+    "schema_version": 1,
+    # Long, math-bearing — Markdown + $…$ / $$…$$ LaTeX. The semantic-search payload.
+    "description": (
+        "Direct numerical simulation of 3D incompressible Navier–Stokes,\n"
+        "$$\\partial_t \\mathbf{u} + (\\mathbf{u}\\cdot\\nabla)\\mathbf{u} "
+        "= -\\nabla p + \\nu\\nabla^2\\mathbf{u},\\quad \\nabla\\cdot\\mathbf{u}=0$$\n"
+        "on a triply-periodic box at $Re_\\lambda \\approx 240$, Kolmogorov-forced."
+    ),
+    "pde": {"family": "navier_stokes", "name": "Incompressible Navier–Stokes (DNS)",
+            "equation_latex": "\\partial_t \\mathbf{u} + ..."},
+    "boundary_conditions": ["periodic"],
+    "initial_conditions": "random divergence-free, E(k) ∝ k^-5/3",
+    "domain": {"geometry": "periodic_box", "spatial_dims": 3, "resolution": [256, 256, 256]},
+    "variables": [
+        {"name": "u", "role": "field", "shape": [1000, 3, 256, 256, 256], "dtype": "float64", "units": "m/s"},
+        {"name": "p", "role": "field", "shape": [1000, 256, 256, 256], "dtype": "float64", "units": "Pa"},
+    ],
+    "properties": {"forcing": "kolmogorov", "solver": "pseudospectral"},  # free-form facets
+}
+```
+
+Guidance:
+
+- Write a real `description` with the governing PDE in LaTeX — it's embedded for
+  semantic search and rendered (KaTeX) in the dataset detail UI.
+- Fill the curated facets (`pde.family`, `boundary_conditions`,
+  `initial_conditions`, `domain.geometry`) and the per-variable `variables`
+  (shape + dtype + units). Chronicle rolls these up (max rank → `n_dims`, the
+  distinct float precisions → `precisions`) for cheap filtered listing
+  (`chronicle.datasets.list(precision="fp64", pde_family="navier_stokes")`).
+- Use `properties` (string→string) for anything else worth faceting (forcing,
+  solver, generator) — each becomes an exact-match search facet
+  (`properties: ANY("forcing=kolmogorov")`) with no schema change.
+
+### Register a dataset already in GCS (no upload)
+
+Most large datasets are written straight to GCS and never flow through
+Chronicle. Register them **by reference** — created `ready` in one call:
+
+```python
+asset = chronicle.datasets.register_by_reference(
+    "gs://customer-bucket/turbulence/fit256/",    # existing bytes; not uploaded
+    name="forced-isotropic-turbulence-256",
+    metadata=metadata,
+    size_bytes=13_314_398_208,                     # author-declared
+    visibility="org",                              # or "public" / "private"
+)
+chronicle.datasets.link(asset["id"], experiment_id, variation=variation)  # link like any dataset
+```
+
+### Update / correct metadata later
+
+```python
+chronicle.datasets.update_metadata(asset_id, metadata=metadata, size_bytes=size)
+```
+
+The bytes (`uri` / `sha256` / `components`) are immutable; `metadata` +
+`size_bytes` are a **mutable annotation** — editing them recomputes the promoted
+columns and re-projects the dataset to search. Requires `Write` on the asset.
+
+You can also pass `metadata=` directly to `upload` (Chronicle-hosted bytes) so
+a freshly-uploaded dataset is searchable immediately.
 
 ## Sizing — single PUT per component, no multipart
 
@@ -197,9 +279,20 @@ Outputs tab) and corrupts lineage. Concretely:
   `chronicle.list_scopes`; optional `visibility`, org-wide by default in an
   org context).
 
+**Register-by-reference + metadata over MCP.** For a dataset whose bytes already
+live in GCS/S3, an MCP agent calls `chronicle.register_dataset(uri, name,
+metadata?, size_bytes?, public?` / `organization_id?)` — created `ready` in one
+call, no upload. To author or correct a dataset's metadata layer afterward, use
+`chronicle.update_dataset_metadata(asset_id, metadata?, size_bytes?)`. Both take
+the same `metadata` document shown in "Dataset metadata layer" above. Discovery
+is `chronicle.search` with `asset_types: ["dataset"]` + the dataset facets
+(`precisions`, `pde_family`, `properties`).
+
 ## Requires
 
-- `pip install methodic-research` (≥0.9 — the `chronicle.datasets` namespace)
+- `pip install methodic-research` (the `chronicle.datasets` namespace;
+  `register_by_reference` / `update_metadata` / the `metadata=` arg need the
+  release that adds the dataset metadata layer)
 - `CHRONICLE_API_KEY` + `CHRONICLE_SERVER_URL` exported (or `methodic auth
   login` already done)
 - Optional: a default organization via `organization_id:` in
