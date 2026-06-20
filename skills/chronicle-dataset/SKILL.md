@@ -131,6 +131,10 @@ Tell the user:
    out when `sensitive` kept it off the experiment's readers.
 3. For a load: the destination directory and the recorded provenance.
 
+To share this dataset with a specific person or team, or set its visibility
+(private / organization / public) independent of its experiment, use
+**`chronicle-share`**.
+
 ## Failure modes
 
 - **`upload` / `link` 403** — the caller lacks `Write` on the experiment.
