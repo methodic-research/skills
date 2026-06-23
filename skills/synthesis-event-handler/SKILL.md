@@ -16,14 +16,12 @@ description: |
 # Synthesis event handler
 
 This is the consumption half of M11 closed-loop continuous exploration
-(see [`runes/chronicle/designs/agent-flows.md`][af] §17.8 +
-[`edison/shared_plans/m11-synthesis-events-push.md`][push]). Chronicle
+(see [`runes/chronicle/designs/agent-flows.md`][af] §17.8). Chronicle
 pushes one event per variation outcome and one (coalesced) event per
 distillation-report finalization onto your stdin via the tartarus-d
 relay client; this skill says what to do with each.
 
 [af]: ../../../runes/chronicle/designs/agent-flows.md
-[push]: ../../../edison/shared_plans/m11-synthesis-events-push.md
 
 ## Wire shape (what your stdin actually sees)
 
