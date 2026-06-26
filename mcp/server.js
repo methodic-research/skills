@@ -81,10 +81,18 @@ function resolveConfig() {
     cfg.server_url ||
     DEFAULT_SERVER_URL
   ).replace(/\/+$/, '');
-  return { apiKey, serverUrl };
+  // Scribe serves run-log search (POST /v1/logs/search). No default — the
+  // host/env differs per deployment; when unset the search_logs tool reports
+  // how to configure it rather than guessing a URL.
+  const scribeUrl = (
+    process.env.CHRONICLE_SCRIBE_URL ||
+    cfg.scribe_url ||
+    ''
+  ).replace(/\/+$/, '');
+  return { apiKey, serverUrl, scribeUrl };
 }
 
-const { apiKey, serverUrl } = resolveConfig();
+const { apiKey, serverUrl, scribeUrl } = resolveConfig();
 const MCP_URL = `${serverUrl}/v1/mcp/messages`;
 
 // stderr only — stdout is the MCP channel.
@@ -275,6 +283,81 @@ async function handleUpload(req) {
   return toolResult(id, done);
 }
 
+// ----------------------------------------------------------------------------
+// Run-log search (launcher-served, backed by Scribe — not chronicle)
+// ----------------------------------------------------------------------------
+
+// A launcher-provided tool the model can call to view + search a training run's
+// logs. It is served by Scribe (POST /v1/logs/search → Cloud Logging), so the
+// launcher handles it locally instead of proxying to chronicle's MCP.
+const SEARCH_LOGS_TOOL = {
+  name: 'search_logs',
+  description:
+    "View and search a training run's logs (from Cloud Logging, via Scribe) for " +
+    'troubleshooting. Returns log lines newest-first; pass `query` to filter to a ' +
+    'case-insensitive substring (e.g. an error message). Error *detection* is also ' +
+    'on the run record (status + failure reason); this is for full log detail.',
+  inputSchema: {
+    type: 'object',
+    required: ['experiment_id', 'variation', 'run'],
+    properties: {
+      experiment_id: { type: 'string', description: 'Experiment UUID.' },
+      variation: { type: 'integer', description: 'Variation index.' },
+      run: { type: 'integer', description: 'Run number within the variation.' },
+      query: {
+        type: 'string',
+        description: 'Optional case-insensitive substring to match in the log text.',
+      },
+      limit: { type: 'integer', description: 'Max lines (default 200, max 1000).' },
+      order: {
+        type: 'string',
+        enum: ['asc', 'desc'],
+        description: 'asc = oldest first; desc = newest first (default).',
+      },
+    },
+  },
+};
+
+// Handle a `search_logs` tools/call by POSTing to Scribe with the caller's key.
+async function handleSearchLogs(req) {
+  if (!scribeUrl) {
+    return toolResult(
+      req.id,
+      {
+        error:
+          'log search unavailable: set CHRONICLE_SCRIBE_URL or scribe_url in ' +
+          '~/.methodic/config.yaml',
+      },
+      true,
+    );
+  }
+  const a = (req.params && req.params.arguments) || {};
+  const body = { experiment_id: a.experiment_id, variation: a.variation, run: a.run };
+  if (a.query !== undefined) body.query = a.query;
+  if (a.limit !== undefined) body.limit = a.limit;
+  if (a.order !== undefined) body.order = a.order;
+  try {
+    const res = await fetch(`${scribeUrl}/v1/logs/search`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+      body: JSON.stringify(body),
+    });
+    const text = await res.text();
+    if (!res.ok) {
+      return toolResult(req.id, { error: `scribe ${res.status}: ${text}` }, true);
+    }
+    let payload;
+    try {
+      payload = JSON.parse(text);
+    } catch {
+      payload = { raw: text };
+    }
+    return toolResult(req.id, payload);
+  } catch (e) {
+    return toolResult(req.id, { error: `log search failed: ${e && e.message}` }, true);
+  }
+}
+
 // Advertise the launcher-handled `path` parameter on the upload tools so the
 // model knows it can pass a local file instead of base64.
 function augmentToolsList(resp) {
@@ -294,6 +377,11 @@ function augmentToolsList(resp) {
       };
     }
   }
+  // Inject the launcher-served search_logs tool (only when Scribe is configured,
+  // and not if chronicle ever advertises one itself).
+  if (scribeUrl && !tools.some((t) => t.name === SEARCH_LOGS_TOOL.name)) {
+    tools.push(SEARCH_LOGS_TOOL);
+  }
   return resp;
 }
 
@@ -311,6 +399,11 @@ async function handleOne(req) {
     const argPath = req.params && req.params.arguments && req.params.arguments.path;
     if (req.method === 'tools/call' && UPLOAD_TOOLS.has(name) && argPath) {
       return await handleUpload(req);
+    }
+    // search_logs is launcher-served (Scribe-backed) — handle locally, never
+    // proxy it to chronicle's MCP.
+    if (req.method === 'tools/call' && name === SEARCH_LOGS_TOOL.name) {
+      return await handleSearchLogs(req);
     }
 
     const resp = await postMcp(req);
