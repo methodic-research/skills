@@ -16,7 +16,7 @@ let mod; // the launcher module, required after env is set
 let mock; // { server, port, captured }
 
 function startMockChronicle() {
-  const captured = { presignArgs: null, putLen: null, finalizeId: null, lastMethod: null };
+  const captured = { presignArgs: null, putLen: null, finalizeId: null, lastMethod: null, logSearchBody: null };
 
   const server = http.createServer((req, res) => {
     const chunks = [];
@@ -43,6 +43,22 @@ function startMockChronicle() {
         captured.lastMethod = rpc.method;
         res.writeHead(200, { 'content-type': 'application/json' });
         res.end(JSON.stringify(dispatchMock(rpc, captured, server)));
+        return;
+      }
+      // scribe log search (stand-in for Scribe; same mock host)
+      if (req.method === 'POST' && req.url === '/v1/logs/search') {
+        const body = JSON.parse(buf.toString('utf8'));
+        captured.logSearchBody = body;
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(
+          JSON.stringify({
+            experiment_id: body.experiment_id,
+            variation: body.variation,
+            run: body.run,
+            count: 1,
+            entries: [{ timestamp: '2026-01-01T00:00:00Z', severity: 'ERROR', text: 'boom' }],
+          }),
+        );
         return;
       }
       res.writeHead(404).end('nope');
@@ -98,6 +114,7 @@ function dispatchMock(rpc, captured, server) {
 test.before(async () => {
   mock = await startMockChronicle();
   process.env.CHRONICLE_SERVER_URL = `http://127.0.0.1:${mock.port}`;
+  process.env.CHRONICLE_SCRIBE_URL = `http://127.0.0.1:${mock.port}`;
   process.env.CHRONICLE_API_KEY = 'sk_test_key';
   mod = require('./server.js'); // resolves config from the env set above
 });
@@ -138,6 +155,35 @@ test('tools/list is augmented with a `path` param on upload tools', async () => 
   const byName = Object.fromEntries(resp.result.tools.map((t) => [t.name, t]));
   assert.ok(byName['chronicle.upload_asset'].inputSchema.properties.path, 'upload_asset gains path');
   assert.ok(!byName['chronicle.get_experiment'].inputSchema.properties.path, 'non-upload untouched');
+});
+
+test('tools/list includes the launcher-served search_logs tool', async () => {
+  const resp = await mod.handleOne({ jsonrpc: '2.0', id: 10, method: 'tools/list' });
+  const byName = Object.fromEntries(resp.result.tools.map((t) => [t.name, t]));
+  assert.ok(byName['search_logs'], 'search_logs advertised');
+  assert.deepEqual(byName['search_logs'].inputSchema.required, [
+    'experiment_id',
+    'variation',
+    'run',
+  ]);
+});
+
+test('search_logs tools/call is served by Scribe, not proxied to chronicle', async () => {
+  mock.captured.lastMethod = null;
+  const resp = await mod.handleOne({
+    jsonrpc: '2.0', id: 11, method: 'tools/call',
+    params: { name: 'search_logs', arguments: { experiment_id: 'E7', variation: 2, run: 0, query: 'boom' } },
+  });
+  // Hit Scribe's /v1/logs/search with the run identity + query...
+  assert.equal(mock.captured.logSearchBody.experiment_id, 'E7');
+  assert.equal(mock.captured.logSearchBody.run, 0);
+  assert.equal(mock.captured.logSearchBody.query, 'boom');
+  // ...and was NOT proxied to chronicle's MCP transport.
+  assert.equal(mock.captured.lastMethod, null);
+  const payload = mod.parseToolText(resp);
+  assert.equal(payload.count, 1);
+  assert.equal(payload.entries[0].text, 'boom');
+  assert.equal(resp.result.isError, false);
 });
 
 test('a non-upload tools/call is forwarded verbatim', async () => {
