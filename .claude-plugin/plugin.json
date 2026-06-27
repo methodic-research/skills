@@ -1,8 +1,8 @@
 {
   "$schema": "https://code.claude.com/schemas/plugin.json",
   "name": "methodic",
-  "version": "0.14.1",
-  "description": "Skills that help your agent track research hypotheses and experimental results on the Chronicle platform, with role-filtered search over past experimental results and uploaded research documents. Via the methodic-research SDK or the bundled MCP server (call Chronicle directly, no SDK install): research surveys, hypothesis-driven experiment + variation generation, history/lineage search, prep/fork variations, dataset upload, organizing assets + experiments into topic collections and keyword tags, report write-ups with figures, cross-variation distillation (review-gated takeaways), bulk research-PDF import into org libraries (server-side math OCR + role-filtered indexing), lifecycle (delete open drafts, retract committed work, purge orphaned assets, move into an org), status.",
+  "version": "0.15.0",
+  "description": "Skills that help your agent track research hypotheses and experimental results on the Chronicle platform, with role-filtered search over past experimental results and uploaded research documents. Via the methodic-research SDK or the bundled MCP server (call Chronicle directly, no SDK install): research surveys, hypothesis-driven experiment + variation generation, history/lineage search, prep/fork variations, dataset upload, organizing assets + experiments into topic collections and keyword tags, report write-ups with figures, cross-variation distillation (review-gated takeaways), bulk research-PDF import into org libraries (server-side math OCR + role-filtered indexing), lifecycle (delete open drafts, retract committed work, purge orphaned assets, move into an org), status, and reading your activity feed (the needs-you queue, your inbox, new reports, research recs) with an explicit per-section read pointer.",
   "homepage": "https://docs.methodiclabs.ai",
   "author": {
     "name": "Methodic Labs",
