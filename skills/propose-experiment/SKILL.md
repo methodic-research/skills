@@ -72,7 +72,12 @@ The experiment's claim comes in three pieces and you produce them:
   anchors to. Default to a one-paragraph framing the agent writes from the
   hypothesis; confirm with the user.
 - **`parent_experiment_ids`** (optional) — lineage parents if this
-  experiment builds on prior ones (e.g. surfaced by a survey).
+  experiment builds on prior ones (e.g. surfaced by a survey). A parent that
+  is still **open** (uncommitted) becomes a **tentative** link, not real
+  lineage yet: it's recorded but excluded from lineage reads and **blocks this
+  experiment's commit** until resolved (promote once the parent commits, or
+  drop). `create_experiment` returns these in `tentative_parents` — see the
+  workflow below. A committed/concluded parent links immediately.
 - **`commit`** (default `False`) — whether to lock the experiment at the
   end. Only `True` when the user explicitly asks to commit.
 
@@ -88,18 +93,33 @@ The experiment's claim comes in three pieces and you produce them:
    result is JSON in the tool's text content: the new experiment `id` and its
    `state` (`open`). Report "Created experiment `<id>` (open)".
 
+   **If you passed `parent_experiment_ids`, inspect `tentative_parents` in the
+   result.** Any entry there is a parent that was still open, so the link is
+   tentative (excluded from lineage and a commit blocker until resolved). Tell
+   the user which parents are tentative and that they must be resolved before
+   commit — promote each once its parent commits
+   (`chronicle.promote_lineage`), or drop it at commit (step 4). An empty/absent
+   `tentative_parents` means every parent linked as real lineage.
+
    *(SDK equivalent: `chronicle.experiments.create(hypothesis_summary=…,
    config_yaml=…, rationale=…, description=…,
-   parent_experiment_ids=… or None)` → `exp.id`.)*
+   parent_experiment_ids=… or None)` → `exp.id`; the open-parent links are
+   `exp._create_response.tentative_parents`, also queryable any time via
+   `chronicle.experiments.tentative_links(exp.id)`.)*
 
 2. **Attach the FULL hypothesis as a `hypothesis_report`.** Call
    **`chronicle.write_report`** with `{ "experiment_id": "<id>", "kind":
    "hypothesis_report", "summary": <hypothesis_summary>, "body":
    <hypothesis_document> }` — pass the full Markdown doc as `body`, plus any
    structured fields the hypothesis layout accepts (predictions, measurement
-   plan, etc.) the agent populated. Do this whether or not we commit now —
-   the commit gate requires this asset. The result JSON carries the new
+   plan, etc.) the agent populated. The result JSON carries the new
    report asset `id`; report "Attached hypothesis_report `<id>`".
+
+   The `hypothesis_report` is the experiment's **pre-registration**: it links
+   as an experiment-level **input** and **freezes on commit**. So write it
+   **before** committing (it's experiment-level — don't pass a `variation`),
+   and do it whether or not we commit now — the commit gate requires this
+   asset, and once committed it can no longer be changed.
 
    *(SDK equivalent: `exp.reports.hypothesis.render(payload={"summary": …,
    "body": …, …})` → `report.id`.)*
@@ -120,7 +140,16 @@ The experiment's claim comes in three pieces and you produce them:
    added after commit, but the hypothesis/config spec is locked. Report
    "Committed experiment `<id>`".
 
-   *(SDK equivalent: `chronicle.experiments.commit(exp.id)`.)*
+   **If the experiment has tentative lineage links (step 1), commit refuses
+   until you resolve every one** — there is no silent default. Add a
+   `tentative_links` map naming each tentative parent: `{ "experiment_id":
+   "<id>", "tentative_links": { "<parent_id>": "promote" | "drop" } }`.
+   `promote` makes it real lineage but is only valid once that parent has
+   itself committed (else commit errors — `drop` it or wait); `drop` discards
+   the link. Confirm the disposition with the user rather than guessing.
+
+   *(SDK equivalent: `chronicle.experiments.commit(exp.id,
+   tentative_links={"<parent_id>": "drop"})`.)*
 
 ## After the skill completes
 
@@ -135,9 +164,11 @@ Tell the user:
    edit), and — if not already committed — that the experiment must be
    committed before the first variation can be committed/run.
 
-If `parent_experiment_ids` were set, mention the lineage link and remind
-the user that retracted parents block new children unless
-`allow_retracted_parent: true`.
+If `parent_experiment_ids` were set, mention the lineage link. Call out any
+**tentative** parents (from `tentative_parents`/`tentative_links`) separately:
+they aren't real lineage yet and will block commit until promoted (once the
+parent commits) or dropped. Also remind the user that retracted parents block
+new children unless `allow_retracted_parent: true`.
 
 ## Failure modes
 
@@ -147,6 +178,17 @@ the user that retracted parents block new children unless
   not happen because step 2 attaches it before step 4, but if the
   `write_report` in step 2 failed and was skipped, commit will refuse.
   Re-run the report write, then re-attempt commit.
+- **`write_report` (hypothesis) rejected — experiment is committed**: the
+  hypothesis is pre-registration and froze at commit, so it can't be added or
+  changed afterward. This only happens if step 2 was skipped/failed and the
+  experiment was committed anyway; the hypothesis must be set before commit.
+  Surface it — don't retry — and note the experiment would need a fresh
+  (uncommitted) one to carry a different hypothesis.
+- **`commit_experiment` rejected — unresolved tentative lineage links**: the
+  experiment was created off one or more still-open parents and commit needs a
+  disposition for each. Re-call `commit_experiment` with a `tentative_links`
+  map (step 4): `promote` a parent that has since committed, `drop` the rest.
+  The error body lists the unresolved parent ids.
 - **`commit_experiment` rejected — retracted parent**: a
   `parent_experiment_id` is retracted and `allow_retracted_parent` wasn't
   set. Tell the user; either drop the parent or re-create with the flag (a
