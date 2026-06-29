@@ -86,6 +86,16 @@ no-experiment path) and ask the user to narrow.
    *(SDK equivalent: `chronicle.experiments.get_lineage(id)` →
    `lineage.ancestors` / `lineage.descendants`.)*
 
+   **Tentative links are deliberately absent here.** A fork of a still-open
+   parent records a *tentative* link that's excluded from `get_lineage` until
+   promoted — so an experiment can have a pending parent the DAG won't show. If
+   lineage looks emptier than expected (or the user asks "what's it forked
+   from"), call **`chronicle.list_tentative_links`** with `{ "experiment_id":
+   "<id>" }` and report any entries as *pending* parents (each has
+   `parent_state` + `promotable`), distinct from the confirmed DAG above.
+
+   *(SDK equivalent: `chronicle.experiments.tentative_links(id)`.)*
+
 4. **Retraction provenance** — retracted ancestors invalidate premises. From the
    same `chronicle.get_lineage` result, flag any `ancestors[]` entry carrying a
    non-null `retracted_at` (with its `retraction_reason`). If any are present,
