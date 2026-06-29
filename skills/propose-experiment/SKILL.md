@@ -101,9 +101,14 @@ The hypothesis comes in two forms and you produce both:
    "hypothesis_report", "summary": <hypothesis_summary>, "body":
    <hypothesis_document> }` — pass the full Markdown doc as `body`, plus any
    structured fields the hypothesis layout accepts (predictions, measurement
-   plan, etc.) the agent populated. Do this whether or not we commit now —
-   the commit gate requires this asset. The result JSON carries the new
+   plan, etc.) the agent populated. The result JSON carries the new
    report asset `id`; report "Attached hypothesis_report `<id>`".
+
+   The `hypothesis_report` is the experiment's **pre-registration**: it links
+   as an experiment-level **input** and **freezes on commit**. So write it
+   **before** committing (it's experiment-level — don't pass a `variation`),
+   and do it whether or not we commit now — the commit gate requires this
+   asset, and once committed it can no longer be changed.
 
    *(SDK equivalent: `exp.reports.hypothesis.render(payload={"summary": …,
    "body": …, …})` → `report.id`.)*
@@ -162,6 +167,12 @@ new children unless `allow_retracted_parent: true`.
   not happen because step 2 attaches it before step 4, but if the
   `write_report` in step 2 failed and was skipped, commit will refuse.
   Re-run the report write, then re-attempt commit.
+- **`write_report` (hypothesis) rejected — experiment is committed**: the
+  hypothesis is pre-registration and froze at commit, so it can't be added or
+  changed afterward. This only happens if step 2 was skipped/failed and the
+  experiment was committed anyway; the hypothesis must be set before commit.
+  Surface it — don't retry — and note the experiment would need a fresh
+  (uncommitted) one to carry a different hypothesis.
 - **`commit_experiment` rejected — unresolved tentative lineage links**: the
   experiment was created off one or more still-open parents and commit needs a
   disposition for each. Re-call `commit_experiment` with a `tentative_links`
