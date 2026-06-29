@@ -31,10 +31,15 @@ prefer it, the SDK equivalents are noted inline.) The bundled launcher
 resolves credentials from `~/.methodic` — see the repo README "The MCP tools
 (bundled — zero config)".
 
-The hypothesis comes in two forms and you produce both:
+The experiment's claim comes in three pieces and you produce them:
 
+- a **title** — a short heading (a handful of words; a noun phrase, not a
+  sentence), lives in `experiments.title`. This is the experiment's display
+  name in listings and the header. Keep it brief — resist packing the claim
+  or its caveats into it; that's what the summary and document are for.
 - a **short summary** — one or two sentences, lives in
-  `experiments.hypothesis_summary`, used for listing/filtering.
+  `experiments.hypothesis_summary`. A normal-length description of the claim,
+  used for listing/filtering and shown under the title.
 - a **full document** — the detailed hypothesis (background, claim,
   predictions, how it'll be measured), persisted as a `hypothesis_report`
   asset. The experiment **commit gate requires a `hypothesis_report`**, so
@@ -42,10 +47,15 @@ The hypothesis comes in two forms and you produce both:
 
 ## Inputs
 
-- **`hypothesis_summary`** — short one/two-sentence claim. If the user gave
-  a long description, the agent distills the summary in-context (local
-  Claude session — no server LLM call). Prompt only if there's genuinely
-  nothing to work from.
+- **`title`** — a short heading (aim for a handful of words; a noun phrase,
+  not a sentence). Distil it from the hypothesis. This is only the display
+  name — move all detail into the summary and the full document, and do not
+  restate the whole claim here. If you genuinely can't form a short one, omit
+  it (display falls back to the summary). Avoid verbose, sentence-long titles.
+- **`hypothesis_summary`** — a one/two-sentence description of the claim
+  (normal prose, not a title). If the user gave a long description, the agent
+  distills the summary in-context (local Claude session — no server LLM
+  call). Prompt only if there's genuinely nothing to work from.
 - **`hypothesis_document`** — the full hypothesis text (Markdown). The agent
   drafts this from the conversation; show it to the user for confirmation
   before creating the experiment. The Methodic UI renders the body inline
@@ -69,13 +79,14 @@ The hypothesis comes in two forms and you produce both:
 ## Workflow
 
 1. **Create the experiment.** Call **`chronicle.create_experiment`** with
-   `{ "hypothesis_summary": <short field>, "config_yaml": <config_yaml>,
-   "rationale": <optional: why this is worth testing>, "description":
-   <optional: human-readable card text>, "parent_experiment_ids":
-   <parent_experiment_ids or omit> }`. `hypothesis_summary` is the short
-   field; `config_yaml` seeds variation 0. The result is JSON in the tool's
-   text content: the new experiment `id` and its `state` (`open`). Report
-   "Created experiment `<id>` (open)".
+   `{ "title": <short heading>, "hypothesis_summary": <one/two-sentence
+   description>, "config_yaml": <config_yaml>, "rationale": <optional: why
+   this is worth testing>, "description": <optional: human-readable card
+   text>, "parent_experiment_ids": <parent_experiment_ids or omit> }`. Keep
+   `title` short (a noun phrase); the detail lives in `hypothesis_summary`
+   and the full `hypothesis_report`. `config_yaml` seeds variation 0. The
+   result is JSON in the tool's text content: the new experiment `id` and its
+   `state` (`open`). Report "Created experiment `<id>` (open)".
 
    *(SDK equivalent: `chronicle.experiments.create(hypothesis_summary=…,
    config_yaml=…, rationale=…, description=…,
@@ -117,7 +128,7 @@ Tell the user:
 
 1. The new experiment id (and its state — `open` or `committed`).
 2. That the full hypothesis is saved as a `hypothesis_report` (id), and the
-   short summary is on the experiment card.
+   title + short summary are on the experiment card.
 3. The linked research prompt id.
 4. The next steps: add variations with `chronicle-prep-variation`
    (or `chronicle-author-variation` to have the agent write the config
