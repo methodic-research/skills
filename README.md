@@ -116,7 +116,16 @@ Inside Claude Code:
 /plugin install methodic
 ```
 
-That's it — with step 1 done, you can start immediately: the skills auto-trigger by intent ("survey the literature on …", "propose an experiment for …", "make a variation that …"). Pull new versions later with `/plugin marketplace update methodic`.
+That's it — with step 1 done, you can start immediately: the skills auto-trigger by intent ("survey the literature on …", "propose an experiment for …", "make a variation that …").
+
+**Updating.** Refreshing the marketplace alone does *not* move your installed version — do **both** steps, then restart Claude Code:
+
+```text
+/plugin marketplace update methodic
+/plugin update methodic@methodic
+```
+
+(From a shell the qualified `methodic@methodic` name is **required** — a bare `claude plugin update methodic` reports `Plugin "methodic" not found`. The `/plugin` menu inside Claude Code runs the same two steps interactively.) An install that's been sitting on an old version is the usual reason new skills or the bundled MCP server appear "missing".
 
 ### 3. The MCP tools (bundled — zero config)
 
@@ -154,6 +163,16 @@ To give a whole team a one-trust setup, commit a `.claude/settings.json` to the 
   "enabledPlugins": { "methodic@methodic": true }
 }
 ```
+
+### Claude Desktop (one-click)
+
+Claude Desktop can't run Claude Code skills, but it *can* run the same MCP server — so you get the `chronicle.*` tools (internal search, experiment create/read/commit, lifecycle, report-write, dataset + image upload, ACL management, run-log search) directly in Desktop.
+
+1. Download `methodic-<version>.mcpb` from the [latest release](https://github.com/methodic-research/skills/releases/latest).
+2. Open it in Claude Desktop (double-click, or **Settings → Extensions → Install from file**).
+3. When prompted, paste your `sk_...` API key — or leave it blank to reuse `~/.methodic/credentials.yaml` if you already ran the CLI setup. The server URL defaults to `https://api.methodiclabs.ai`.
+
+The bundle is the same zero-dependency `mcp/server.js` the Claude Code plugin runs, so uploads and credential resolution behave identically. Build it yourself with `bash desktop/build.sh` (writes `desktop/dist/methodic-<version>.mcpb`).
 
 ## What's inside
 
