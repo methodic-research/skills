@@ -1,0 +1,51 @@
+name: desktop-mcpb
+
+# Package the Methodic MCP server for Claude Desktop as a one-click .mcpb bundle
+# and publish it to a GitHub Release so end users can download + double-click.
+#
+# Triggers:
+#   - tag push `methodic--v<version>` (the tag `claude plugin tag` creates):
+#       build the .mcpb and create/attach it to that tag's GitHub Release.
+#   - pull_request touching the bundle sources: build only (proves it still
+#     packs), no release. Scoped by paths so it doesn't run on unrelated PRs.
+#   - workflow_dispatch: manual build; uploads the .mcpb as a workflow artifact.
+on:
+  push:
+    tags: ['methodic--v*']
+  pull_request:
+    paths:
+      - 'desktop/**'
+      - 'mcp/server.js'
+      - '.github/workflows/desktop-mcpb.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write # create the release + upload the .mcpb asset (tag pushes only)
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Build the .mcpb bundle
+        run: bash desktop/build.sh
+      - name: Upload as workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: methodic-mcpb
+          path: desktop/dist/*.mcpb
+          if-no-files-found: error
+      - name: Publish to the release
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Create the release if it doesn't exist yet, then (re)upload the asset.
+          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 \
+            || gh release create "$GITHUB_REF_NAME" \
+                 --title "$GITHUB_REF_NAME" \
+                 --notes "Methodic MCP bundle for Claude Desktop. Download the \`.mcpb\` below and open it in Claude Desktop to install. Enter your \`sk_...\` API key when prompted (or leave blank to reuse \`~/.methodic/credentials.yaml\`)."
+          gh release upload "$GITHUB_REF_NAME" desktop/dist/*.mcpb --clobber

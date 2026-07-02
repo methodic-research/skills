@@ -1,0 +1,55 @@
+{
+  "manifest_version": "0.2",
+  "name": "methodic",
+  "display_name": "Methodic (Chronicle)",
+  "version": "0.16.0",
+  "description": "Call Chronicle experiment-tracking tools directly from Claude Desktop — no SDK install.",
+  "long_description": "Methodic's MCP server for Claude Desktop. Exposes Chronicle's `chronicle.*` tools — internal role-filtered search over past experiments and research docs, experiment/variation create/read/commit, lifecycle (move/delete/retract), report write-ups, dataset + image upload, ACL management, and run-log search — talking straight to your Chronicle server. Reuses the same `~/.methodic` credentials as the CLI/SDK; local-file uploads are streamed presign → PUT → finalize so the bytes never pass through the model. This is the same `server.js` the Claude Code plugin runs, packaged for one-click Desktop install.",
+  "author": {
+    "name": "Methodic Labs",
+    "email": "support@methodiclabs.ai"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/methodic-research/skills"
+  },
+  "homepage": "https://docs.methodiclabs.ai",
+  "license": "Apache-2.0",
+  "keywords": ["chronicle", "experiments", "research", "ml-ops", "methodic"],
+  "server": {
+    "type": "node",
+    "entry_point": "server.js",
+    "mcp_config": {
+      "command": "node",
+      "args": ["${__dirname}/server.js"],
+      "env": {
+        "CHRONICLE_API_KEY": "${user_config.api_key}",
+        "CHRONICLE_SERVER_URL": "${user_config.server_url}",
+        "CHRONICLE_SCRIBE_URL": "${user_config.scribe_url}",
+        "HOME": "${HOME}"
+      }
+    }
+  },
+  "user_config": {
+    "api_key": {
+      "type": "string",
+      "title": "Methodic API key",
+      "description": "Your sk_... key from the Methodic UI (API keys). Leave blank to reuse ~/.methodic/credentials.yaml if you already ran the CLI setup.",
+      "sensitive": true,
+      "required": false
+    },
+    "server_url": {
+      "type": "string",
+      "title": "Chronicle server URL",
+      "description": "Override the Chronicle API endpoint. Leave the default unless you self-host.",
+      "default": "https://api.methodiclabs.ai",
+      "required": false
+    },
+    "scribe_url": {
+      "type": "string",
+      "title": "Scribe URL (optional)",
+      "description": "Enables run-log search (the search_logs tool). Leave blank if unused.",
+      "required": false
+    }
+  }
+}

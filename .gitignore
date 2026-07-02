@@ -1,0 +1,3 @@
+# Claude Desktop bundle build artifacts (see desktop/build.sh)
+desktop/build/
+desktop/dist/
