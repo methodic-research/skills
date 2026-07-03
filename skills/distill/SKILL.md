@@ -157,6 +157,42 @@ print(f"Registered {asset_type} {asset_id} (pending review) on experiment {exper
 If `write_research_report` is set (experiment scope), repeat step 3 with
 `asset_type="research_report"` and a longer-form body.
 
+## Record the findings
+
+The report body is the detailed record; a **finding** is the one-line
+"what's working / what's not" signal per variation that lands on the
+experiment's running-summary header and the activity feed (a `finding.recorded`
+event) — so the state of the research reads at a glance without opening the
+report. After registering the report, record one finding **per variation you
+analysed**, drawn from the "Per-variation findings" section you just wrote:
+
+```python
+# For scope="experiment"/"corpus": loop the variations you covered.
+# For scope="variation": a single finding for `variation`.
+# The server keys on `evidence_variation` — recording again for the same
+# variation REPLACES its finding (one finding per variation, not a stack).
+for v_index, judged in per_variation_findings.items():
+    chronicle._transport.post(
+        f"/experiments/{experiment_id}/findings",
+        json={
+            # Judge from the METRICS, not the run's succeed/fail outcome:
+            #   "working"     — improved on baseline / confirmed the hypothesis
+            #   "partial"     — mixed or conditional result
+            #   "not_working" — regressed, or cleanly ruled the approach out
+            "status": judged["status"],
+            "summary": judged["one_liner"],   # the signal in a sentence
+            "evidence_variation": v_index,
+            "source_asset_id": asset_id,       # the report this distilled
+        },
+    )
+```
+
+This keeps the running summary honest about the ablations that failed, not just
+the headline — the same discipline as the required "What didn't work" section.
+Recording a finding needs `Write` (the authority the report write already used);
+a finding write failing is non-fatal (the report still landed) — surface it and
+continue.
+
 ## After the skill completes
 
 Tell the user:

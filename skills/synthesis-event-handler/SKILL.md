@@ -58,6 +58,16 @@ fall through to your normal reasoning.
 
 ## What to do per event kind
 
+Each completion event drives **two** things, in this order:
+
+1. **Record the finding** — the judged "what's working / what's not" signal for
+   the variation (see [Record the finding](#record-the-finding)). This is
+   **independent of the continuous-exploration policy** — do it even when
+   exploration is disabled, so the experiment's running summary stays current on
+   every outcome.
+2. **Decide whether to propose** a follow-up variation — gated on the
+   continuous-exploration policy, covered by the numbered steps below.
+
 ### `variation_completed`
 
 1. **Read the experiment's continuous_exploration block** via
@@ -123,6 +133,45 @@ fall through to your normal reasoning.
      wants to conclude when distillation closes the question.
    - You'd propose something semantically duplicate of an
      existing variation.
+
+## Record the finding
+
+For each variation whose outcome you've judged — from the `variation_completed`
+outcome plus the variation's outputs/metrics, or from a `variation_report` you
+read on `distillation_completed` — record a structured **finding**. It's the
+one-line signal that lands on the experiment's running-summary header ("what's
+working / what's not") and the global activity feed (a `finding.recorded`
+event), so the researcher reads the state of the experiment without opening a
+report:
+
+```python
+chronicle._transport.post(
+    f"/experiments/{event['experiment_id']}/findings",
+    json={
+        # Judge from the METRICS, not the run's succeed/fail outcome — a run can
+        # finish "succeeded" while its eval metric regresses:
+        #   "working"     — improved on baseline / confirmed the hypothesis
+        #   "partial"     — mixed or conditional result
+        #   "not_working" — regressed, or cleanly ruled the approach out
+        "status": status,
+        "summary": one_line_signal,   # the signal in a sentence
+        "evidence_variation": variation,   # variation_completed → event["variation"];
+                                           # a variation_report → its output_of.variation
+        # "source_asset_id": report_asset_id,  # set when you judged from a report
+    },
+)
+```
+
+- The server keys the running summary on `evidence_variation` — re-recording for
+  the same variation **replaces** its finding, so refine freely: a preliminary
+  finding on `variation_completed`, sharpened when the `variation_report` lands.
+- Record it **whether or not you propose** a follow-up, and even when
+  continuous-exploration is disabled — it's a record of the judgment, not a
+  proposal, and it needs only `Write` (which your `sk_agent_*` key already has).
+- If you genuinely can't judge yet (the outcome arrived but no metrics are
+  attached and no report exists), **defer** — record when the `variation_report`
+  lands rather than guessing a status.
+- Non-fatal on failure: log and continue to the propose decision.
 
 ## Decision: propose vs. wait
 

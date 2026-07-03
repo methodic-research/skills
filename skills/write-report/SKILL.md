@@ -212,6 +212,48 @@ for name, fid in figure_ids.items():
     print(f"  figure {name} → {fid}")
 ```
 
+## Record the finding (results write-ups)
+
+When the write-up documents **results** — a variation-scoped report, or a
+`takeaways_report` — also record a structured **finding**. The finding is the
+one-line "what's working / what's not" signal that lands on the experiment's
+running-summary header and the activity feed (a `finding.recorded` event), so
+the state of the research is visible without opening the report. It is separate
+from, and in addition to, the report body.
+
+One `POST` per variation — the server keys the running summary on
+`evidence_variation`, so recording again for the same variation **replaces**
+that variation's finding (it doesn't stack):
+
+```python
+# `status`: judge from the METRICS, not the run's succeed/fail outcome — a run
+# can finish "succeeded" while its eval metric regresses.
+#   "working"     — improved on baseline / confirmed the hypothesis
+#   "partial"     — mixed or conditional result
+#   "not_working" — regressed, or cleanly ruled the approach out
+chronicle._transport.post(
+    f"/experiments/{experiment_id}/findings",
+    json={
+        "status": status,
+        "summary": one_line_signal,       # the takeaway in a sentence
+        "evidence_variation": variation,  # the variation the evidence comes from
+        "source_asset_id": asset_id,      # this report (optional but preferred)
+        # "evidence_run": run,            # optional: a specific run
+    },
+)
+```
+
+- **Variation-scoped write-up** → one finding, `evidence_variation = variation`.
+- **Experiment-scoped `takeaways_report`** → one finding **per variation** you
+  judged in "What worked" / "What didn't work", each pointing at its own
+  `evidence_variation`.
+- **General `research_report`** not tied to a variation's result → skip it;
+  there is no `evidence_variation` to attach.
+
+Recording the finding needs `Write` on the experiment (the same authority the
+report write used). A finding write failing is non-fatal — the report still
+landed; surface the error and continue.
+
 ## After the skill completes
 
 Tell the user:
