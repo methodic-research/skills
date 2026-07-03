@@ -14,7 +14,7 @@ nothing you aren't. And lineage travels with the record — parents,
 retractions, invalidated outputs — so new work builds on results whose
 provenance and current standing are explicit.
 
-This repo is a Claude Code marketplace containing one plugin (`methodic`).
+This repo is a Claude Code marketplace (`methodic`) containing one plugin (`chronicle`).
 
 ## Getting started
 
@@ -34,7 +34,7 @@ This repo is a Claude Code marketplace containing one plugin (`methodic`).
 > ```text
 > # 2. Claude Code: install the plugin from the marketplace.
 > /plugin marketplace add methodic-research/skills
-> /plugin install methodic
+> /plugin install chronicle
 > ```
 >
 > That's the whole default path — once the plugin is installed you can start
@@ -113,7 +113,7 @@ Inside Claude Code:
 
 ```text
 /plugin marketplace add methodic-research/skills
-/plugin install methodic
+/plugin install chronicle
 ```
 
 That's it — with step 1 done, you can start immediately: the skills auto-trigger by intent ("survey the literature on …", "propose an experiment for …", "make a variation that …").
@@ -122,10 +122,10 @@ That's it — with step 1 done, you can start immediately: the skills auto-trigg
 
 ```text
 /plugin marketplace update methodic
-/plugin update methodic@methodic
+/plugin update chronicle@methodic
 ```
 
-(From a shell the qualified `methodic@methodic` name is **required** — a bare `claude plugin update methodic` reports `Plugin "methodic" not found`. The `/plugin` menu inside Claude Code runs the same two steps interactively.) An install that's been sitting on an old version is the usual reason new skills or the bundled MCP server appear "missing".
+(From a shell, use the qualified `chronicle@methodic` name; the `/plugin` menu inside Claude Code runs the same two steps interactively.) An install that's been sitting on an old version is the usual reason new skills or the bundled MCP server appear "missing".
 
 ### 3. The MCP tools (bundled — zero config)
 
@@ -160,7 +160,7 @@ To give a whole team a one-trust setup, commit a `.claude/settings.json` to the 
   "extraKnownMarketplaces": {
     "methodic": { "source": { "source": "github", "repo": "methodic-research/skills" } }
   },
-  "enabledPlugins": { "methodic@methodic": true }
+  "enabledPlugins": { "chronicle@methodic": true }
 }
 ```
 
@@ -168,11 +168,11 @@ To give a whole team a one-trust setup, commit a `.claude/settings.json` to the 
 
 Claude Desktop can't run Claude Code skills, but it *can* run the same MCP server — so you get the `chronicle.*` tools (internal search, experiment create/read/commit, lifecycle, report-write, dataset + image upload, ACL management, run-log search) directly in Desktop.
 
-1. Download `methodic-<version>.mcpb` from the [latest release](https://github.com/methodic-research/skills/releases/latest).
+1. Download `chronicle-<version>.mcpb` from the [latest release](https://github.com/methodic-research/skills/releases/latest).
 2. Open it in Claude Desktop (double-click, or **Settings → Extensions → Install from file**).
 3. When prompted, paste your `sk_...` API key — or leave it blank to reuse `~/.methodic/credentials.yaml` if you already ran the CLI setup. The server URL defaults to `https://api.methodiclabs.ai`.
 
-The bundle is the same zero-dependency `mcp/server.js` the Claude Code plugin runs, so uploads and credential resolution behave identically. Build it yourself with `bash desktop/build.sh` (writes `desktop/dist/methodic-<version>.mcpb`).
+The bundle is the same zero-dependency `mcp/server.js` the Claude Code plugin runs, so uploads and credential resolution behave identically. Build it yourself with `bash desktop/build.sh` (writes `desktop/dist/chronicle-<version>.mcpb`).
 
 ## What's inside
 
@@ -218,7 +218,7 @@ Skills reach Chronicle two ways — the **bundled MCP server** (`chronicle.*` to
 How releases reach users:
 
 1. **The repo is public.** `/plugin marketplace add methodic-research/skills` resolves with the user's git credentials, so anyone can add the marketplace and install — no extra access setup.
-2. **Manifests stay correct.** `.claude-plugin/marketplace.json` (the `methodic` plugin entry) and `.claude-plugin/plugin.json` are already in place; skills are auto-discovered from `skills/<name>/SKILL.md` — nothing else to register.
+2. **Manifests stay correct.** `.claude-plugin/marketplace.json` (the `chronicle` plugin entry) and `.claude-plugin/plugin.json` are already in place; skills are auto-discovered from `skills/<name>/SKILL.md` — nothing else to register.
 3. **Versioning drives updates.** `plugin.json`'s `version` (currently `0.4.0`) is the release knob: bump it to publish a new version (users get it via `/plugin marketplace update`). Omit `version` instead to treat every push as a new version during active development.
 4. Users then run the two commands in [step 2](#2-install-the-plugin-the-skills).
 

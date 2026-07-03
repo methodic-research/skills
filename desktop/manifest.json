@@ -1,10 +1,10 @@
 {
   "manifest_version": "0.2",
-  "name": "methodic",
-  "display_name": "Methodic (Chronicle)",
-  "version": "0.16.0",
+  "name": "chronicle",
+  "display_name": "Chronicle (Methodic)",
+  "version": "0.17.0",
   "description": "Call Chronicle experiment-tracking tools directly from Claude Desktop — no SDK install.",
-  "long_description": "Methodic's MCP server for Claude Desktop. Exposes Chronicle's `chronicle.*` tools — internal role-filtered search over past experiments and research docs, experiment/variation create/read/commit, lifecycle (move/delete/retract), report write-ups, dataset + image upload, ACL management, and run-log search — talking straight to your Chronicle server. Reuses the same `~/.methodic` credentials as the CLI/SDK; local-file uploads are streamed presign → PUT → finalize so the bytes never pass through the model. This is the same `server.js` the Claude Code plugin runs, packaged for one-click Desktop install.",
+  "long_description": "Chronicle's MCP server for Claude Desktop. Exposes Chronicle's `chronicle.*` tools — internal role-filtered search over past experiments and research docs, experiment/variation create/read/commit, lifecycle (move/delete/retract), report write-ups, dataset + image upload, ACL management, and run-log search — talking straight to your Chronicle server. Reuses the same `~/.methodic` credentials as the CLI/SDK; local-file uploads are streamed presign → PUT → finalize so the bytes never pass through the model. This is the same `server.js` the Claude Code plugin runs, packaged for one-click Desktop install.",
   "author": {
     "name": "Methodic Labs",
     "email": "support@methodiclabs.ai"

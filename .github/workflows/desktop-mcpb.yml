@@ -1,17 +1,17 @@
 name: desktop-mcpb
 
-# Package the Methodic MCP server for Claude Desktop as a one-click .mcpb bundle
+# Package the Chronicle MCP server for Claude Desktop as a one-click .mcpb bundle
 # and publish it to a GitHub Release so end users can download + double-click.
 #
 # Triggers:
-#   - tag push `methodic--v<version>` (the tag `claude plugin tag` creates):
+#   - tag push `chronicle--v<version>` (the tag `claude plugin tag` creates):
 #       build the .mcpb and create/attach it to that tag's GitHub Release.
 #   - pull_request touching the bundle sources: build only (proves it still
 #     packs), no release. Scoped by paths so it doesn't run on unrelated PRs.
 #   - workflow_dispatch: manual build; uploads the .mcpb as a workflow artifact.
 on:
   push:
-    tags: ['methodic--v*']
+    tags: ['chronicle--v*']
   pull_request:
     paths:
       - 'desktop/**'
@@ -35,7 +35,7 @@ jobs:
       - name: Upload as workflow artifact
         uses: actions/upload-artifact@v4
         with:
-          name: methodic-mcpb
+          name: chronicle-mcpb
           path: desktop/dist/*.mcpb
           if-no-files-found: error
       - name: Publish to the release
@@ -47,5 +47,5 @@ jobs:
           gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 \
             || gh release create "$GITHUB_REF_NAME" \
                  --title "$GITHUB_REF_NAME" \
-                 --notes "Methodic MCP bundle for Claude Desktop. Download the \`.mcpb\` below and open it in Claude Desktop to install. Enter your \`sk_...\` API key when prompted (or leave blank to reuse \`~/.methodic/credentials.yaml\`)."
+                 --notes "Chronicle MCP bundle for Claude Desktop. Download the \`.mcpb\` below and open it in Claude Desktop to install. Enter your \`sk_...\` API key when prompted (or leave blank to reuse \`~/.methodic/credentials.yaml\`)."
           gh release upload "$GITHUB_REF_NAME" desktop/dist/*.mcpb --clobber
