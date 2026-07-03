@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build the Methodic Claude Desktop bundle: desktop/dist/methodic-<version>.mcpb
+# Build the Chronicle Claude Desktop bundle: desktop/dist/chronicle-<version>.mcpb
 #
 # Single-sourced by design — no duplicated server code, no version drift:
 #   - the server is a COPY of ../mcp/server.js (the exact file the Claude Code
@@ -33,6 +33,6 @@ node -e "
   fs.writeFileSync('$stage/manifest.json', JSON.stringify(m, null, 2) + '\n');
 "
 
-out="$dist/methodic-$version.mcpb"
+out="$dist/chronicle-$version.mcpb"
 npx --yes @anthropic-ai/mcpb@2.1.2 pack "$stage" "$out"
 echo "Built $out"
