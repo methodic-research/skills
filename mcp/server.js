@@ -2,7 +2,7 @@
 'use strict';
 
 /**
- * methodic-mcp — a stdio MCP launcher bundled in the methodic plugin.
+ * chronicle-mcp — a stdio MCP launcher bundled in the chronicle plugin.
  *
  * It lets skills call chronicle's `chronicle.*` MCP tools directly, with no
  * Python SDK install:
@@ -97,7 +97,7 @@ const MCP_URL = `${serverUrl}/v1/mcp/messages`;
 
 // stderr only — stdout is the MCP channel.
 function log(...parts) {
-  process.stderr.write('[methodic-mcp] ' + parts.join(' ') + '\n');
+  process.stderr.write('[chronicle-mcp] ' + parts.join(' ') + '\n');
 }
 
 // ----------------------------------------------------------------------------
