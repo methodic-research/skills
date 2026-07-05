@@ -127,6 +127,19 @@ That's it — with step 1 done, you can start immediately: the skills auto-trigg
 
 (From a shell, use the qualified `chronicle@methodic` name; the `/plugin` menu inside Claude Code runs the same two steps interactively.) An install that's been sitting on an old version is the usual reason new skills or the bundled MCP server appear "missing".
 
+<!-- MIGRATION NOTICE — added 2026-07-05 for the methodic@methodic → chronicle@methodic rename.
+     Delete this whole blockquote once the rename has propagated: target ~2026-08-05 (1mo),
+     no later than ~2026-09-05 (2mo). Tracking: methodic-research/skills#48 -->
+> **Migrating from `methodic@methodic`?** The plugin was renamed `methodic` → `chronicle`. If you installed it before the rename, switch once — then restart Claude Code:
+>
+> ```text
+> /plugin marketplace update methodic
+> /plugin uninstall methodic@methodic
+> /plugin install chronicle@methodic
+> ```
+>
+> The marketplace name (`methodic`) and your `~/.methodic` credentials are unchanged.
+
 ### 3. The MCP tools (bundled — zero config)
 
 Chronicle hosts an **MCP server** (`/v1/mcp/messages`, served by `chronicle-server`) exposing native `chronicle.*` tools — internal search, experiment create/read/commit, move/delete/retract lifecycle, report-write, image + generic asset (dataset) upload + ACL management + orphan hard-delete, research prompts, session search. **The plugin bundles a launcher that wires these up for you** (`.mcp.json` → `mcp/server.js`): on install it registers a local stdio MCP server that reads the **same `~/.methodic/credentials.yaml`** and proxies to your Chronicle server — no manual config, no key pasted into a file. It also intercepts `upload_asset`/`upload_image` calls that pass a local `path`, doing presign → PUT → finalize over HTTP so the bytes never pass through the model. (`node` ≥18, already required by Claude Code; first tool use prompts for approval.) Calling these tools directly is leaner on tokens than the SDK — a structured tool call vs. reading + regenerating SDK code — so MCP-direct is the default for read/CRUD skills.
