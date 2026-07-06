@@ -1,0 +1,44 @@
+{
+  "name": "chronicle",
+  "version": "0.17.0",
+  "description": "Skills and MCP tools for working with Chronicle research experiments.",
+  "author": {
+    "name": "Methodic Labs",
+    "email": "support@methodiclabs.ai",
+    "url": "https://docs.methodiclabs.ai"
+  },
+  "homepage": "https://docs.methodiclabs.ai",
+  "repository": "https://github.com/methodic-research/skills",
+  "license": "Apache-2.0",
+  "keywords": [
+    "chronicle",
+    "experiments",
+    "research",
+    "ml-ops",
+    "methodic"
+  ],
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json",
+  "interface": {
+    "displayName": "Chronicle",
+    "shortDescription": "Research experiment workflows for Chronicle.",
+    "longDescription": "Use Chronicle skills and MCP tools to search prior work, create experiments and variations, manage datasets and reports, inspect activity, and record research outcomes on the Methodic platform.",
+    "developerName": "Methodic Labs",
+    "category": "Developer Tools",
+    "capabilities": [
+      "Interactive",
+      "Read",
+      "Write"
+    ],
+    "websiteURL": "https://docs.methodiclabs.ai",
+    "privacyPolicyURL": "https://methodiclabs.ai/privacy",
+    "termsOfServiceURL": "https://methodiclabs.ai/terms",
+    "defaultPrompt": [
+      "Survey prior work and propose a Chronicle experiment.",
+      "Check my Chronicle feed and summarize what needs attention.",
+      "Write up findings from a Chronicle variation."
+    ],
+    "brandColor": "#2563EB",
+    "screenshots": []
+  }
+}

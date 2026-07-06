@@ -2,7 +2,7 @@
 
 [![skills-e2e](https://github.com/methodic-research/skills/actions/workflows/skills-e2e.yml/badge.svg?branch=main)](https://github.com/methodic-research/skills/actions/workflows/skills-e2e.yml)
 
-Claude Code plugin: skills for working with the [Chronicle](https://docs.methodiclabs.ai) experiment platform.
+Agent plugins and skills for working with the [Chronicle](https://docs.methodiclabs.ai) experiment platform.
 
 These skills help your agent track research hypotheses and experimental
 results, and provide role-filtered search over past experimental results and
@@ -14,7 +14,7 @@ nothing you aren't. And lineage travels with the record — parents,
 retractions, invalidated outputs — so new work builds on results whose
 provenance and current standing are explicit.
 
-This repo is a Claude Code marketplace (`methodic`) containing one plugin (`chronicle`).
+This repo is a marketplace for Claude Code and Codex (`methodic`) containing one plugin (`chronicle`).
 
 ## Getting started
 
@@ -35,6 +35,11 @@ This repo is a Claude Code marketplace (`methodic`) containing one plugin (`chro
 > # 2. Claude Code: install the plugin from the marketplace.
 > /plugin marketplace add methodic-research/skills
 > /plugin install chronicle
+> ```
+> ```bash
+> # Codex equivalent:
+> codex plugin marketplace add methodic-research/skills
+> codex plugin add chronicle@methodic
 > ```
 >
 > That's the whole default path — once the plugin is installed you can start
@@ -140,6 +145,25 @@ That's it — with step 1 done, you can start immediately: the skills auto-trigg
 >
 > The marketplace name (`methodic`) and your `~/.methodic` credentials are unchanged.
 
+Inside Codex:
+
+```bash
+codex plugin marketplace add methodic-research/skills
+codex plugin add chronicle@methodic
+```
+
+For local development from a checkout, add the checkout path as the marketplace
+source instead:
+
+```bash
+codex plugin marketplace add .
+codex plugin add chronicle@methodic
+```
+
+The Codex plugin manifest is `plugins/chronicle/.codex-plugin/plugin.json`; the
+Codex package mirrors the same `skills/` directory and starts the same local
+stdio MCP launcher with `node ./mcp/server.js`.
+
 ### 3. The MCP tools (bundled — zero config)
 
 Chronicle hosts an **MCP server** (`/v1/mcp/messages`, served by `chronicle-server`) exposing native `chronicle.*` tools — internal search, experiment create/read/commit, move/delete/retract lifecycle, report-write, image + generic asset (dataset) upload + ACL management + orphan hard-delete, research prompts, session search. **The plugin bundles a launcher that wires these up for you** (`.mcp.json` → `mcp/server.js`): on install it registers a local stdio MCP server that reads the **same `~/.methodic/credentials.yaml`** and proxies to your Chronicle server — no manual config, no key pasted into a file. It also intercepts `upload_asset`/`upload_image` calls that pass a local `path`, doing presign → PUT → finalize over HTTP so the bytes never pass through the model. (`node` ≥18, already required by Claude Code; first tool use prompts for approval.) Calling these tools directly is leaner on tokens than the SDK — a structured tool call vs. reading + regenerating SDK code — so MCP-direct is the default for read/CRUD skills.
@@ -217,8 +241,8 @@ The bundle is the same zero-dependency `mcp/server.js` the Claude Code plugin ru
 | `chronicle-delete-experiment` | "delete this draft", "clean up the experiments I'm not using" | Hard-deletes **open (uncommitted)** experiments and their cascade after explicit confirmation. Committed/concluded work is refused and routed to retraction. MCP: `chronicle.delete_experiment` (creator-guarded). |
 | `chronicle-retract-experiment` | "retract this experiment", "this result turned out to be wrong", "withdraw those findings" | Soft-retracts a **committed/concluded** experiment (or one variation) with a required reason: row/lineage/audit preserved, output assets invalidated, repo archived read-only. MCP: `chronicle.retract_experiment`. |
 | `chronicle-delete-asset` | "delete these datasets", "clean up the orphaned uploads", "purge the assets I uploaded by mistake" | Hard-deletes **unlinked** assets (no experiment/variation input or output links) after explicit confirmation — row, ACLs, storage bytes, search doc. Linked assets are refused (409) and stay deprecate/invalidate-only. MCP: `chronicle.delete_asset` (creator-guarded). |
-| `triage-error-queue` | "triage the error queue", "process incoming bugs" | Drains the Chronicle error-report triage queue locally. Claims one report, gathers context, decides match/new/noise, submits a structured verdict. Pair with `/loop`. Cost win: LLM call runs against your Claude Max, not chronicle's metered API key. See [`automated-error-reporting.md`](../runes/chronicle/designs/automated-error-reporting.md) §5.5. |
-| `fix-error-queue` | "fix the next error", "work on a queued bug" | Drains the fix queue locally. Claims one open root_cause, reads the triage agent's writeup, fixes on a branch in your methodic checkout, opens a PR (no autonomous merging). Pair with `/loop`. See [`automated-error-reporting.md`](../runes/chronicle/designs/automated-error-reporting.md) §8.2. |
+| `triage-error-queue` | "triage the error queue", "process incoming bugs" | Drains the Chronicle error-report triage queue locally. Claims one report, gathers context, decides match/new/noise, submits a structured verdict. Run repeatedly with your agent's loop/automation runner. Cost win: the LLM call stays local instead of using Chronicle's metered server-side LLM key. See [`automated-error-reporting.md`](../runes/chronicle/designs/automated-error-reporting.md) §5.5. |
+| `fix-error-queue` | "fix the next error", "work on a queued bug" | Drains the fix queue locally. Claims one open root_cause, reads the triage agent's writeup, fixes on a branch in your methodic checkout, opens a PR (no autonomous merging). Run repeatedly with your agent's loop/automation runner. See [`automated-error-reporting.md`](../runes/chronicle/designs/automated-error-reporting.md) §8.2. |
 | `synthesis-event-handler` | (inside a tartarus-d synthesis agent) "I just received a `variation_completed` event", "stdin shows `distillation_completed`" | Behavior contract for the synthesis agent's response to M11 continuous-exploration push events. Parses the event, fetches report bodies, decides whether to propose follow-up variations. Not user-invokable — the agent triggers it from its system prompt when an event lands on stdin. See [`agent-flows.md`](../runes/chronicle/designs/agent-flows.md) §17.8. |
 | `methodic-feedback` | "file feedback", "report this", "request a feature" — and **proactively**, whenever the agent hits a gap or issue mid-task | Records feedback to Chronicle's private feedback endpoint the moment it's encountered (Markdown body; `gap` / `feedback` / `feature_request`), then — end of turn, with your confirmation — offers to mirror it as a public GitHub issue on `methodic-research/skills` via your own `gh` (searching for duplicates first). Reproducible errors route to the error pipeline instead of plain feedback. |
 
@@ -230,8 +254,8 @@ Skills reach Chronicle two ways — the **bundled MCP server** (`chronicle.*` to
 
 How releases reach users:
 
-1. **The repo is public.** `/plugin marketplace add methodic-research/skills` resolves with the user's git credentials, so anyone can add the marketplace and install — no extra access setup.
-2. **Manifests stay correct.** `.claude-plugin/marketplace.json` (the `chronicle` plugin entry) and `.claude-plugin/plugin.json` are already in place; skills are auto-discovered from `skills/<name>/SKILL.md` — nothing else to register.
+1. **The repo is public.** `/plugin marketplace add methodic-research/skills` and `codex plugin marketplace add methodic-research/skills` resolve with the user's git credentials, so anyone can add the marketplace and install — no extra access setup.
+2. **Manifests stay correct.** Claude uses `.claude-plugin/marketplace.json` and `.claude-plugin/plugin.json`; Codex uses `.agents/plugins/marketplace.json` and `plugins/chronicle/.codex-plugin/plugin.json`. Both expose the same skills and the same `mcp/server.js` launcher.
 3. **Versioning drives updates.** `plugin.json`'s `version` (currently `0.4.0`) is the release knob: bump it to publish a new version (users get it via `/plugin marketplace update`). Omit `version` instead to treat every push as a new version during active development.
 4. Users then run the two commands in [step 2](#2-install-the-plugin-the-skills).
 
@@ -262,14 +286,13 @@ require that `from methodic import Chronicle` resolves.
   handle = v.name or f"v{v.variation}"
   ```
 - **Operational LLM calls.** Some future skills will want to ask an LLM something on the user's behalf — a hypothesis-extract, a summarization, a structured-output prompt. Two paths exist; pick deliberately:
-    1. **Use the local Claude session** the skill is running in. Free under the user's Claude Max plan and the obvious default for one-shot reasoning the skill itself does.
+    1. **Use the local agent session** the skill is running in. This is the obvious default for one-shot reasoning the skill itself does, and it uses the user's current agent environment rather than Chronicle's server-side LLM key.
     2. **Route through chronicle-server's resolved-LLM endpoint** (`/v1/operational/extract-hypothesis` and friends — the resolver walks the principal's scope hierarchy for a configured Anthropic/OpenAI key, falling back to a Methodic-managed key). Use this when the call needs to be billed to the user's organization, audited as a Chronicle action, or reproduced server-side from a Cloud Function or scheduled job.
   
   **Never construct a direct Anthropic/OpenAI HTTP call from a skill.** That bypasses both the user's chosen LLM (the org's Anthropic vs OpenAI default) and Chronicle's audit log.
 
 ## What this is not (yet)
 
-- **MCP config bundled into the plugin.** Chronicle now *has* an MCP server (`/v1/mcp/messages`, exposing `chronicle.*` tools) — see [Getting started](#3-wire-the-chronicle-mcp-tools-recommended) for wiring it today via `.mcp.json`. A candidate next step is declaring it directly in `plugin.json` (`mcpServers` + a `userConfig` prompt for the server URL + API key) so `/plugin install` also wires the endpoint in one step.
 - **Cloud agents.** Cloud-hosted agents that prep variations without any local checkout are tracked separately; their design intentionally avoids needing these client-side skills.
 
 ## License
