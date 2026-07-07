@@ -172,20 +172,22 @@ analysed**, drawn from the "Per-variation findings" section you just wrote:
 # The server keys on `evidence_variation` — recording again for the same
 # variation REPLACES its finding (one finding per variation, not a stack).
 for v_index, judged in per_variation_findings.items():
-    chronicle._transport.post(
-        f"/experiments/{experiment_id}/findings",
-        json={
-            # Judge from the METRICS, not the run's succeed/fail outcome:
-            #   "working"     — improved on baseline / confirmed the hypothesis
-            #   "partial"     — mixed or conditional result
-            #   "not_working" — regressed, or cleanly ruled the approach out
-            "status": judged["status"],
-            "summary": judged["one_liner"],   # the signal in a sentence
-            "evidence_variation": v_index,
-            "source_asset_id": asset_id,       # the report this distilled
-        },
+    chronicle.experiments.record_finding(
+        experiment_id,
+        # Judge from the METRICS, not the run's succeed/fail outcome:
+        #   "working"     — improved on baseline / confirmed the hypothesis
+        #   "partial"     — mixed or conditional result
+        #   "not_working" — regressed, or cleanly ruled the approach out
+        status=judged["status"],
+        summary=judged["one_liner"],   # the signal in a sentence
+        evidence_variation=v_index,
+        source_asset_id=asset_id,      # the report this distilled
     )
 ```
+
+(MCP-native agents: the `chronicle.record_finding` tool, same fields. On
+methodic-research < 0.38 fall back to
+`chronicle._transport.post(f"/experiments/{id}/findings", json={...})`.)
 
 This keeps the running summary honest about the ablations that failed, not just
 the headline — the same discipline as the required "What didn't work" section.

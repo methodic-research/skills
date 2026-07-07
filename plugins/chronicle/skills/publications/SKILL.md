@@ -56,6 +56,11 @@ tools (bundled — zero config)".
    **`chronicle.link_asset`** with
    `{ "experiment_id": "<exp_id>", "asset_id": "<publication_id>", "link": "input" }`.
    Inputs freeze on commit, so cite before committing (or while still open).
+   The default `propagate_acl: true` **shares the publication with everyone who
+   can read the experiment** and requires **Administer** on it — fine for a
+   public/arXiv paper you registered, but for a **non-public** publication you
+   don't own, confirm the share or pass `propagate_acl: false` (see
+   chronicle-dataset's "Sharing is a delegation").
 
 ## Unpublished work — drafts + finalize
 
