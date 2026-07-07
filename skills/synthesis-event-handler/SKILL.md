@@ -145,22 +145,24 @@ event), so the researcher reads the state of the experiment without opening a
 report:
 
 ```python
-chronicle._transport.post(
-    f"/experiments/{event['experiment_id']}/findings",
-    json={
-        # Judge from the METRICS, not the run's succeed/fail outcome — a run can
-        # finish "succeeded" while its eval metric regresses:
-        #   "working"     — improved on baseline / confirmed the hypothesis
-        #   "partial"     — mixed or conditional result
-        #   "not_working" — regressed, or cleanly ruled the approach out
-        "status": status,
-        "summary": one_line_signal,   # the signal in a sentence
-        "evidence_variation": variation,   # variation_completed → event["variation"];
-                                           # a variation_report → its output_of.variation
-        # "source_asset_id": report_asset_id,  # set when you judged from a report
-    },
+chronicle.experiments.record_finding(
+    event["experiment_id"],
+    # Judge from the METRICS, not the run's succeed/fail outcome — a run can
+    # finish "succeeded" while its eval metric regresses:
+    #   "working"     — improved on baseline / confirmed the hypothesis
+    #   "partial"     — mixed or conditional result
+    #   "not_working" — regressed, or cleanly ruled the approach out
+    status=status,
+    summary=one_line_signal,        # the signal in a sentence
+    evidence_variation=variation,   # variation_completed → event["variation"];
+                                    # a variation_report → its output_of.variation
+    # source_asset_id=report_asset_id,  # set when you judged from a report
 )
 ```
+
+(MCP-native agents: the `chronicle.record_finding` tool, same fields. On
+methodic-research < 0.38 fall back to
+`chronicle._transport.post(f"/experiments/{id}/findings", json={...})`.)
 
 - The server keys the running summary on `evidence_variation` — re-recording for
   the same variation **replaces** its finding, so refine freely: a preliminary
