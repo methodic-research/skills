@@ -231,17 +231,19 @@ that variation's finding (it doesn't stack):
 #   "working"     — improved on baseline / confirmed the hypothesis
 #   "partial"     — mixed or conditional result
 #   "not_working" — regressed, or cleanly ruled the approach out
-chronicle._transport.post(
-    f"/experiments/{experiment_id}/findings",
-    json={
-        "status": status,
-        "summary": one_line_signal,       # the takeaway in a sentence
-        "evidence_variation": variation,  # the variation the evidence comes from
-        "source_asset_id": asset_id,      # this report (optional but preferred)
-        # "evidence_run": run,            # optional: a specific run
-    },
+chronicle.experiments.record_finding(
+    experiment_id,
+    status=status,
+    summary=one_line_signal,        # the takeaway in a sentence
+    evidence_variation=variation,   # the variation the evidence comes from
+    source_asset_id=asset_id,       # this report (optional but preferred)
+    # evidence_run=run,             # optional: a specific run
 )
 ```
+
+(MCP-native agents: the `chronicle.record_finding` tool, same fields. On
+methodic-research < 0.38 fall back to
+`chronicle._transport.post(f"/experiments/{id}/findings", json={...})`.)
 
 - **Variation-scoped write-up** → one finding, `evidence_variation = variation`.
 - **Experiment-scoped `takeaways_report`** → one finding **per variation** you
