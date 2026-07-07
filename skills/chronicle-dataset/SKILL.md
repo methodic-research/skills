@@ -133,8 +133,24 @@ Each component is a **single presigned PUT** — there is no multipart upload.
   merged into the stored provenance record — the sha256/size/component facts
   are computed for you.
 - **`sensitive`** (optional) — when true, link with `propagate_acl=False` so
-  the dataset does **not** inherit the experiment's reader ACLs.
+  the dataset does **not** inherit the experiment's reader ACLs. Default this
+  from the user's intent — see "**Sharing is a delegation**" below and **confirm
+  before broadly sharing a dataset the user doesn't own**.
 - For **load**: **`asset_id`** + a **`dest`** directory.
+
+> **⚠️ An experiment-level link is a delegation — confirm before sharing a
+> dataset the user doesn't own.** A `propagate_acl=True` experiment-level link
+> (the default) stamps the experiment's reader ACLs onto the dataset — it
+> **shares the dataset with everyone who can read the experiment: now, anyone
+> invited later, and the whole org or public if the experiment's visibility
+> widens.** Before linking a dataset the user **doesn't own** this way, confirm
+> they intend that exposure; otherwise link it `sensitive` (`propagate_acl=False`).
+>
+> A propagating link also **requires Administer on the dataset** (you're editing
+> its ACL). Linking a dataset shared with you **read-only** with
+> `propagate_acl=True` is refused (`not authorized`) — either its owner shares it
+> (chronicle-share, or a transfer), or link it `propagate_acl=False`. This is
+> Chronicle's link-time delegation model (authz.md "…delegated at link time").
 
 ## Workflow — upload
 
@@ -255,8 +271,10 @@ Outputs tab) and corrupts lineage. Concretely:
   variation: <idx>)`. No ACL propagation (workers read it via the
   experiment's containment).
 - **Experiment-shared dataset** → omit `variation`; experiment-level input
-  links propagate the experiment's reader ACLs (disable with
-  `propagate_acl: false` for a sensitive dataset).
+  links propagate the experiment's reader ACLs — a **delegation** (see the
+  callout under Parameters): confirm before sharing a dataset the user doesn't
+  own, and note a propagating link **requires Administer on the dataset**
+  (disable with `propagate_acl: false` for a sensitive or read-only-shared one).
 - **Order matters**: inputs freeze at commit. Upload + link *before*
   committing the variation/experiment; after commit the input link is
   refused (the freeze is the point — add a new open variation instead).
