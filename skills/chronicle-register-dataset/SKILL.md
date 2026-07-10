@@ -158,7 +158,10 @@ into indexed columns for cheap filtered listing and projects the rest to search.
 - **scope / visibility** (optional) — `organization_id` to register into an org
   (fill from `~/.methodic/config.yaml`'s recorded default when the user doesn't
   name one, and say which org was used); `public: true` for a public corpus
-  (`everyone:Read`). Omit for personal scope.
+  (`everyone:Read`). Omit for personal scope. This is for **standalone**
+  registration — a dataset created *linked to an experiment* (upload with
+  `link: "input"`, REST `output_of`) inherits the experiment's org
+  automatically and needs no `organization_id` (see chronicle-dataset).
 - **`asset_id`** (update / inspect) — the dataset asset UUID for
   `update_dataset_metadata`.
 - **filters** (list) — `n_dims` / `min_dims` / `max_dims`, `precision`

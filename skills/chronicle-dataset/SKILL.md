@@ -250,6 +250,15 @@ To share this dataset with a specific person or team, or set its visibility
   `organization_id`. Prefer linking as an input at upload time; fall back to
   an explicit scope + `chronicle.link_asset` later only when the target
   experiment/variation doesn't exist yet.
+- **Don't pass `organization_id` on linked uploads** — a create linked to an
+  experiment (`link: "input"`/`"output"`, REST `output_of`) **inherits the
+  experiment's org/team automatically** (chronicle-server ≥0.177.3): the
+  dataset is owned by the experiment's scope, lists in that scope's Datasets
+  catalog, and bills to it. A passed org that contradicts the experiment's is
+  a 400 (`asset_org_mismatch`). Explicit scope is for **standalone**
+  (`link: "none"`) registration. Inherited attribution never broadens reads —
+  a private experiment's datasets stay experiment-scoped unless you pass
+  `visibility` explicitly.
 
 ## MCP-native agents
 
