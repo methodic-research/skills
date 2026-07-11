@@ -177,7 +177,7 @@ web UI to mint an API key — agents cannot bootstrap credentials.
    continues in the Direction tab on the experiment page. Do **not** merge
    the question into the research prompt retroactively — the prompt is
    immutable and was confirmed in step 2; the direction message is the live
-   work order. If the tool is absent (server < 0.182.0), tell the user to
+   work order. If the tool is absent (server < 0.181.0), tell the user to
    paste the question into the Direction tab — same effect.
 
 9. **Hand off.** Print the experiment page (`/experiments/<id>` in the
