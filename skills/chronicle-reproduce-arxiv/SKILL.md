@@ -90,15 +90,24 @@ documents only what reproduction adds. Credentials from `~/.methodic` (or
      result to reproduce, the metric that decides success, known divergence
      risks (data availability, compute, undocumented hyperparameters).
 
-   The experiment stays **open**; hand off exactly as `chronicle-import-repo`
-   does (experiment URL + next steps).
+   The experiment stays **open**; finish exactly as `chronicle-import-repo`
+   does — including its step 8: **ask the user for an optional kick-off
+   question** ("anything specific you want the agents to work on now beyond
+   the reproduction itself?" — e.g. "check whether the result survives on
+   dataset Y") and, if given, post it via
+   **`chronicle.post_direction_message`** so the steering agent starts on it;
+   then hand off (experiment URL + next steps).
 
 4. **`--server-side`: run the import in tartarus.** For long clones/
    evaluations or thin clients, keep only the cheap half local:
 
    1. Register the paper (step 1) and confirm title/prompt/repo pick with the
       user (steps 2 + the import core's checkpoint) — confirmation cannot be
-      delegated to a background agent.
+      delegated to a background agent. Also ask the optional kick-off
+      question here (the import core's step 8): in server-side mode it rides
+      **inside the task `prompt`** as an explicit "after import, start
+      working on: <question>" instruction, not as a direction message — the
+      task agent is the one doing the work.
    2. **Create the experiment client-side** (`chronicle.create_experiment`,
       as in the import core) — cheap, and it gives the task an experiment to
       bind to.

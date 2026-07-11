@@ -166,7 +166,21 @@ web UI to mint an API key — agents cannot bootstrap credentials.
    with `{ "experiment_id": "<id>", "prompt": <research_prompt>, "primary":
    true }`. Prompts are immutable once created — use the step-2 confirmed text.
 
-8. **Hand off.** Print the experiment page (`/experiments/<id>` in the
+8. **Ask for a kick-off question.** Ask the user: *"Is there a specific
+   question or idea you want the Methodic agents to start working on now?"*
+   (e.g. "find an example where our method beats method X"). This is optional
+   — accept "not yet" and move on. If they give one, post it as the
+   experiment's first direction message with
+   **`chronicle.post_direction_message`** `{ "experiment_id": "<id>",
+   "text": <the question> }` — this wakes (or cold-starts) the experiment's
+   steering agent, which begins working immediately; the conversation
+   continues in the Direction tab on the experiment page. Do **not** merge
+   the question into the research prompt retroactively — the prompt is
+   immutable and was confirmed in step 2; the direction message is the live
+   work order. If the tool is absent (server < 0.182.0), tell the user to
+   paste the question into the Direction tab — same effect.
+
+9. **Hand off.** Print the experiment page (`/experiments/<id>` in the
    Chronicle web UI) and the "what to do next" summary below.
 
 ## After the skill completes
@@ -181,7 +195,9 @@ Tell the user:
 3. What documents/datasets were attached (ids), and what was *offered* but
    deferred (e.g. datasets awaiting `chronicle-register-dataset`).
 4. The `hypothesis_report` and research-prompt ids.
-5. Next steps: steer the experiment agent from the Direction chat on the
+5. If a kick-off question was posted (step 8): say so, and point at the
+   Direction tab to watch the agent's response.
+6. Next steps: steer the experiment agent from the Direction chat on the
    experiment page, refine the config, then **commit when the spec is
    settled** (`chronicle.commit_experiment`, then
    `chronicle.commit_variation` to dispatch run 0); add variations with
