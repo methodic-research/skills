@@ -15,7 +15,13 @@ or (b) move local file bytes. A tiny **local stdio launcher** solves both.
 
 ## Decisions (from the design thread)
 
-- **Node**, pure stdlib (Claude Code ships Node ≥18 → global `fetch`; no npm). A
+- **Runtime probe** (`launch.sh`): `node` → `bun` → `python3`. The original
+  premise here ("Claude Code ships Node ≥18") was wrong — only Claude *Desktop*
+  bundles a Node runtime (for `.mcpb` extensions); Claude Code's native install
+  has no Node at all, and stdio MCP servers spawn against the user's PATH. So
+  the launcher exists twice, pure stdlib both times and behavior-identical:
+  `server.js` (node/bun — the reference, also the Desktop `.mcpb` entrypoint)
+  and `server.py` (the python3 fallback), each with a mirrored test suite. A
   minimal flat-`key: value` parser reads the `~/.methodic` files (no YAML dep).
 - **Cred/URL resolution mirrors the SDK** (`chronicle.py`): `api_key` =
   `$CHRONICLE_API_KEY` → `~/.methodic/credentials.yaml`; `server_url` =
@@ -41,8 +47,8 @@ or (b) move local file bytes. A tiny **local stdio launcher** solves both.
    proxy passthrough, `tools/list` `path` augmentation, upload interception
    (presign→PUT→finalize), notification = no stdout.
 3. MCP plugin config — Claude Code uses the root `.mcp.json` with
-   `${CLAUDE_PLUGIN_ROOT}`; Codex uses `plugins/chronicle/.mcp.json` with
-   `cwd: "."` and `args: ["./mcp/server.js"]`.
+   `command: "sh"` + `${CLAUDE_PLUGIN_ROOT}/mcp/launch.sh`; Codex uses
+   `plugins/chronicle/.mcp.json` with `cwd: "."` and `args: ["./mcp/launch.sh"]`.
 4. `plugin.json` 0.8.0 → **0.9.0** (off #23) + a "direct MCP transport" desc note.
 5. `skills/status` → MCP-direct proof (drop the SDK `Requires`; add the auto note).
 6. `README` / docs: the transport split (MCP-direct vs SDK-required) + SDK-preference.
@@ -57,6 +63,8 @@ Off **#23 `feat/collections-and-tags-skills`** (highest open skills PR, plugin
 
 ## Testing
 
-`node --test mcp/` (mock server). Full e2e needs a running chronicle-server with
+`node --test mcp/server.test.js` + `python3 mcp/server_test.py` (mock server;
+both run in the `lint` CI job, plus a PATH-stripped probe of `launch.sh`). Full
+e2e needs a running chronicle-server with
 `/v1/mcp/messages`; **flag separately** whether that route is deployed to ci/prod
 (gates real-world use, not the build).

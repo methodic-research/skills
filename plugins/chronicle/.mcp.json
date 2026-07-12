@@ -2,9 +2,9 @@
   "mcpServers": {
     "chronicle": {
       "cwd": ".",
-      "command": "node",
+      "command": "sh",
       "args": [
-        "./mcp/server.js"
+        "./mcp/launch.sh"
       ]
     }
   }
