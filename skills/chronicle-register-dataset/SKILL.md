@@ -158,7 +158,10 @@ into indexed columns for cheap filtered listing and projects the rest to search.
 - **scope / visibility** (optional) — `organization_id` to register into an org
   (fill from `~/.methodic/config.yaml`'s recorded default when the user doesn't
   name one, and say which org was used); `public: true` for a public corpus
-  (`everyone:Read`). Omit for personal scope.
+  (`everyone:Read`). Omit for personal scope. **Standalone registration only:**
+  a dataset created *linked to an experiment* inherits the experiment's
+  org/team automatically — omit `organization_id` there; a contradicting value
+  is a 400 `asset_org_mismatch`.
 - **`asset_id`** (update / inspect) — the dataset asset UUID for
   `update_dataset_metadata`.
 - **filters** (list) — `n_dims` / `min_dims` / `max_dims`, `precision`
@@ -265,10 +268,12 @@ a specific person or team independent of any experiment, use **`chronicle-share`
   `gs://…`/`s3://…` location. Register-by-reference does **not** create the bytes;
   upload them with `chronicle-dataset` (presigned PUT) first if they don't exist
   yet.
-- **`register_dataset` / a create that omits scope** — a dataset needs an owning
-  scope. Fill `organization_id` from `~/.methodic/config.yaml`'s recorded default
-  (and say which org), pass it explicitly, or set `public: true` for a public
-  corpus; omit entirely only for personal scope.
+- **`register_dataset` / a create that omits scope** — a *standalone* dataset
+  needs an owning scope. Fill `organization_id` from `~/.methodic/config.yaml`'s
+  recorded default (and say which org), pass it explicitly, or set
+  `public: true` for a public corpus; omit entirely only for personal scope.
+  (Experiment-linked creates are different: they inherit the experiment's
+  org/team — see the scope parameter note above.)
 - **`update_dataset_metadata` 403** — the caller lacks `Write` on the asset.
   Surface the message verbatim; the metadata layer mutates only with asset
   `Write`.
