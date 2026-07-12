@@ -250,6 +250,10 @@ To share this dataset with a specific person or team, or set its visibility
   `organization_id`. Prefer linking as an input at upload time; fall back to
   an explicit scope + `chronicle.link_asset` later only when the target
   experiment/variation doesn't exist yet.
+- **400 `asset_org_mismatch` / "contradicts the experiment's organization"** —
+  you passed `organization_id` on a *linked* upload and it differs from the
+  experiment's org. Linked creates inherit the experiment's org/team; drop the
+  `organization_id` (it's for standalone/unlinked registration only).
 
 ## MCP-native agents
 
@@ -287,8 +291,18 @@ Outputs tab) and corrupts lineage. Concretely:
 - **Unlinked upload** (`link: "none"`, the default) requires an explicit
   owning scope so the asset isn't orphaned: `scope: "user"` for personal, or
   `scope: "organization"` + `organization_id` (resolve via
-  `chronicle.list_scopes`; optional `visibility`, org-wide by default in an
-  org context).
+  `chronicle.list_scopes`; optional `visibility`, org-wide by default in a
+  *declared* org context).
+- **Linked uploads inherit the experiment's org/team — omit
+  `organization_id`.** A `link: "input"`/`"output"` upload with no scope
+  declared is attributed to the linked experiment's org/team automatically
+  (a dataset created as part of an experiment belongs to the experiment's
+  scope, not the uploading identity's). Inheritance needs no org membership —
+  the experiment `Write` already checked is the authority — and it does *not*
+  broaden default visibility (no org-wide-by-default on an inherited scope;
+  declare `visibility` explicitly if you want that). Passing an
+  `organization_id` that contradicts the experiment's org is rejected (REST:
+  400 `asset_org_mismatch`; MCP: "contradicts the experiment's organization").
 
 **Register-by-reference + metadata over MCP.** For a dataset whose bytes already
 live in GCS/S3, an MCP agent calls `chronicle.register_dataset(uri, name,
