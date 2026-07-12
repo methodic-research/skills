@@ -9,7 +9,7 @@
   "plugins": [
     {
       "name": "chronicle",
-      "description": "Skills that help your agent track research hypotheses and experimental results on the Chronicle platform, with role-filtered search over past experimental results and uploaded research documents \u2014 research surveys, hypothesis-driven experiment + variation generation, history/lineage search, prep/fork variations, dataset upload, topic collections + keyword tags, report write-ups, cross-variation distillation, lifecycle (delete open drafts, retract committed work, purge orphaned assets, move into an org), status.",
+      "description": "Skills that help your agent track research hypotheses and experimental results on the Chronicle platform, with role-filtered search over past experimental results and uploaded research documents \u2014 research surveys, hypothesis-driven experiment + variation generation, repo/arxiv import as a provisioned experiment, history/lineage search, prep/fork variations, dataset upload, topic collections + keyword tags, report write-ups, cross-variation distillation, lifecycle (delete open drafts, retract committed work, purge orphaned assets, move into an org), status.",
       "category": "research",
       "tags": [
         "chronicle",
