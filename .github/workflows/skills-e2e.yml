@@ -27,6 +27,30 @@ jobs:
           python-version: "3.12"
       - name: Static skill lint (frontmatter + no stale API surface)
         run: python3 e2e/lint_skills.py
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: MCP launcher tests (node reference + python fallback)
+        run: |
+          node --test mcp/server.test.js
+          python3 mcp/server_test.py
+      - name: MCP launcher runtime probe
+        # launch.sh must pick a runtime from PATH and fail with a clear install
+        # hint when there is none — Claude Code does not bundle node, which is
+        # exactly how this broke for real users.
+        run: |
+          sh -n mcp/launch.sh
+          # full PATH → node runs the launcher; stdin EOF exits 0
+          CHRONICLE_API_KEY=sk_probe sh mcp/launch.sh </dev/null
+          # python3-only PATH → falls back to the stdlib python port
+          probe="$(mktemp -d)"
+          ln -s "$(command -v python3)" "$probe/python3"
+          PATH="$probe" CHRONICLE_API_KEY=sk_probe /bin/sh mcp/launch.sh </dev/null
+          # no runtimes at all → non-zero exit + a clear message
+          if PATH="$(mktemp -d)" /bin/sh mcp/launch.sh </dev/null 2>probe-err.log; then
+            echo "expected the shim to fail with no runtimes on PATH"; exit 1
+          fi
+          grep -q "no supported runtime" probe-err.log
 
   e2e:
     # Only the full flow needs secrets + compute; runs on PRs into main.

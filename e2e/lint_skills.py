@@ -112,7 +112,14 @@ def _check_codex_mirror(errors: list[str]) -> None:
     for extra in sorted(mirror_skill_names - root_skill_names):
         errors.append(f"codex mirror has extra skill plugins/chronicle/skills/{extra}")
 
-    for rel in ("server.js", "server.test.js", "PLAN.md"):
+    for rel in (
+        "server.js",
+        "server.py",
+        "server.test.js",
+        "server_test.py",
+        "launch.sh",
+        "PLAN.md",
+    ):
         canonical = ROOT / "mcp" / rel
         mirrored = CODEX_MCP_DIR / rel
         if not mirrored.is_file():
