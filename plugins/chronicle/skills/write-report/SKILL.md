@@ -154,8 +154,9 @@ if variation is not None:
 # 1. Upload figures as `image` assets (`html` for an interactive diagram)
 #    and collect their ids for embedding.
 #    Binaries go through the presigned-upload path: register → PUT → finalize.
-#    A single file still goes in `components=[name]` — that's the SDK shape;
-#    Chronicle resolves a lone component to one figure when it's embedded.
+#    With name == the lone component the SDK uploads in the single-file
+#    shape (bytes at the canonical assets/<id>/<file>, methodic#521); the
+#    URL lookup below works under either shape, old SDKs included.
 def _figure_content_type(p: Path) -> str:
     return {
         ".png": "image/png",
