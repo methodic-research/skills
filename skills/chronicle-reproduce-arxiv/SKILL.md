@@ -83,8 +83,11 @@ documents only what reproduction adds. Credentials from `~/.methodic` (or
    - **Pre-link the paper** as an experiment input right after
      `create_experiment`: **`chronicle.link_asset`** with
      `{ "experiment_id": "<id>", "asset_id": "<arxiv asset id>", "link":
-     "input" }`. Arxiv assets are public, so the default ACL propagation is
-     harmless. Inputs freeze at commit — link before any commit.
+     "input" }`. Arxiv assets are world-readable, so the server skips ACL
+     propagation and the link needs only Read. As a citation type the link
+     is also exempt from the commit freeze (it stays linkable until the
+     experiment concludes) — but link it up front anyway; it anchors the
+     whole reproduction.
    - **Frame the research prompt around reproduction** (the default above),
      and ground the `hypothesis_report` in the paper: headline claim, the
      result to reproduce, the metric that decides success, known divergence

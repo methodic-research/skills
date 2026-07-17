@@ -61,6 +61,19 @@ The agent drafts the body (Markdown + `$…$` LaTeX math) with these sections:
 5. **Open questions** — load-bearing unresolved questions for the owner (≤5; each
    with one line on why it matters). Optional but encouraged.
 
+## Register + attach citations
+
+Papers and prior experiments that materially informed the distillation get
+recorded as citations on the experiment, not just named in the body. Papers:
+`chronicle.register_publication` (`{ "doi": … }` or `{ "arxiv": … }`; dedup is
+automatic) then `chronicle.link_asset` `{ "experiment_id": …, "asset_id": …,
+"link": "input" }`. Prior experiments: cite their report assets — a
+`chronicle.search` hit's `document_id` is the asset id; add
+`"propagate_acl": false` for a report you don't administer. Citation links are
+exempt from the input commit freeze (distillation runs post-commit — that's
+fine); they lock only when the experiment concludes. Cite what shaped the
+synthesis, not every hit.
+
 ## Pulling the real numbers — before you draft
 
 Synthesize from the metrics the runs actually produced, not invented ones. For

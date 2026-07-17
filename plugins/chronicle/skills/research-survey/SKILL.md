@@ -38,7 +38,10 @@ the EXTERNAL literature half goes through a *separate* literature MCP server
 (e.g. Paperclip), not Chronicle — leave it exactly as it is. And the
 synthesis step is **agent-native** (a local agent session, no tool at all,
 no server LLM call). So: MCP-direct for the Chronicle corpus, the external
-literature MCP untouched, and the synthesis done in-context.
+literature MCP untouched, and the synthesis done in-context. What the
+literature search SURFACES flows back into Chronicle, though: papers that
+inform the survey are registered (`chronicle.register_publication`) and
+attached as citations (`chronicle.link_asset`) — see Workflow step 5.
 
 This skill reads two corpora that do NOT overlap:
 
@@ -108,7 +111,31 @@ This skill reads two corpora that do NOT overlap:
    note the gap in the synthesis ("external literature not surveyed — no
    literature MCP configured").
 
-5. **Synthesize** — agent-native, no tool. THE AGENT does this in-context
+5. **Register + attach citations for what informed the survey.** When
+   there's an `anchor_experiment_id`, the papers and prior work that shape
+   the synthesis get recorded as citations on that experiment — not just
+   named in prose:
+   - **External papers** (from step 4): for each paper that materially
+     informs the synthesis, call **`chronicle.register_publication`** with
+     the identifier the literature MCP returned — `{ "arxiv":
+     "<id or URL>" }` or `{ "doi": "<doi>" }`. Registration dedups
+     (an already-known work returns the existing asset), so register
+     freely. Then cite it: **`chronicle.link_asset`** with
+     `{ "experiment_id": "<anchor_experiment_id>", "asset_id":
+     "<publication asset id>", "link": "input" }`.
+   - **Internal prior work** (from steps 2–3): a `chronicle.search` hit's
+     `document_id` IS the asset id for report hits — cite the load-bearing
+     ones the same way, adding `"propagate_acl": false` for a report you
+     can read but don't administer.
+   Citation links work on a **committed** experiment too (they lock only
+   at conclusion), and citing a world-readable reference needs only Read.
+   Cite what shaped the synthesis — not every search hit. Skip this step
+   entirely when there is no anchor experiment (nothing to attach to).
+
+   *(SDK equivalent: `chronicle.publications.register(arxiv=…/doi=…)` +
+   `chronicle.experiments.add_inputs(...)`.)*
+
+6. **Synthesize** — agent-native, no tool. THE AGENT does this in-context
    (local agent session) — no server LLM call, no direct Anthropic/OpenAI
    HTTP. Produce a structured prior-art + gaps writeup:
    - What's been tried internally (cite experiment ids + report titles)
@@ -116,7 +143,7 @@ This skill reads two corpora that do NOT overlap:
    - The gap: what neither has resolved, i.e. what a new experiment would
      actually add.
 
-6. **OPTIONALLY persist the synthesis as a `research_report`.** Only when
+7. **OPTIONALLY persist the synthesis as a `research_report`.** Only when
    `save_as_report` is set and there's an `anchor_experiment_id`. Call
    **`chronicle.write_report`** with `{ "experiment_id":
    "<anchor_experiment_id>", "kind": "research_report", "title":
@@ -144,7 +171,9 @@ Present the synthesis to the user in three compact sections:
    `chronicle-propose-experiment`.
 
 If `save_as_report` was set, tell the user the `research_report` asset id
-and which experiment it's linked to.
+and which experiment it's linked to. If citations were attached (step 5),
+say how many and to which experiment — they're visible on its Citations
+tab.
 
 ## Failure modes
 
@@ -170,7 +199,8 @@ and which experiment it's linked to.
 ## Requires
 
 - Nothing to install for the Chronicle half — uses the bundled MCP tools
-  (`chronicle.search` / `get_lineage` / `list_experiments` / `write_report`).
+  (`chronicle.search` / `get_lineage` / `list_experiments` / `write_report`,
+  plus `register_publication` / `link_asset` for the citation step).
 - Credentials resolved from `~/.methodic` (or `CHRONICLE_API_KEY` exported).
 - A configured literature MCP (e.g. Paperclip) for the external half —
   optional; the skill degrades gracefully to Chronicle-internal-only.
