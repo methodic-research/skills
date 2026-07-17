@@ -82,6 +82,32 @@ The agent drafts the body with these sections (Markdown headings):
    page) uploads as an `html` asset and embeds with the same reference —
    the UI renders it in a sandboxed frame.
 
+**And the sources must be cited on the experiment, not just named in
+prose** — see "Register + attach citations" below. A paper mentioned in
+the body without a citation link leaves the experiment's citation record
+empty.
+
+## Register + attach citations
+
+Any paper or prior experiment that materially informed the write-up gets
+recorded as a citation on the experiment:
+
+- **Papers** — `chronicle.register_publication` with `{ "doi": … }` or
+  `{ "arxiv": "<id or URL>" }` (dedup is automatic; a known work returns
+  the existing asset), then `chronicle.link_asset`
+  `{ "experiment_id": …, "asset_id": <publication id>, "link": "input" }`.
+  *(SDK: `chronicle.publications.register(...)` +
+  `chronicle.experiments.add_inputs(...)`.)*
+- **Prior Chronicle experiments** — cite their report assets: a
+  `chronicle.search` hit's `document_id` is the asset id; link it the same
+  way, with `"propagate_acl": false` for a report you can read but don't
+  administer.
+
+Citation links are exempt from the input commit freeze — they work on a
+committed experiment and lock only at conclusion, so citing at
+takeaways time is fine. Cite what shaped the analysis (baselines,
+borrowed methods, contradicted results), not every search hit.
+
 ## Pulling the run's metrics (agent-side W&B) — for a distillation
 
 When the write-up distills **run results** (a `takeaways_report` after runs),

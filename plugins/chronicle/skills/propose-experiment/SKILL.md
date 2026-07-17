@@ -134,6 +134,24 @@ The experiment's claim comes in three pieces and you produce them:
    *(SDK equivalent: `exp.research_prompts.create(research_prompt_text,
    primary=True)` → `rp["id"]`.)*
 
+3b. **Register + attach citations for the papers behind the hypothesis.**
+   If literature informed the hypothesis — a survey
+   (`chronicle-research-survey`) usually precedes this skill, or the user
+   named papers directly — record each as a citation: call
+   **`chronicle.register_publication`** with `{ "doi": … }` or
+   `{ "arxiv": "<id or URL>" }` (dedup is automatic; a known work returns
+   the existing asset), then **`chronicle.link_asset`**
+   `{ "experiment_id": "<id>", "asset_id": "<publication id>",
+   "link": "input" }`. Prior *experiments* it builds on are lineage
+   (`parent_experiment_ids`, step 1) — cite a prior experiment's REPORT
+   only when it informs without being an ancestor (pass
+   `"propagate_acl": false` for one you don't administer). Citation links
+   stay open after commit, so a late cite also works on a committed
+   experiment.
+
+   *(SDK equivalent: `chronicle.publications.register(doi=…/arxiv=…)` +
+   `chronicle.experiments.add_inputs(...)`.)*
+
 4. **OPTIONALLY commit (lock the specification).** Only when the user
    asked. Call **`chronicle.commit_experiment`** with `{ "experiment_id":
    "<id>" }`. Commit freezes inputs + config; new variations can still be
