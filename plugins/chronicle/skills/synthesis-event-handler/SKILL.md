@@ -134,6 +134,17 @@ Each completion event drives **two** things, in this order:
    - You'd propose something semantically duplicate of an
      existing variation.
 
+## Research lessons (check before you judge or propose)
+
+List the experiment's **active research lessons** —
+`chronicle.experiments.list_lessons(experiment_id)` (own + inherited; MCP:
+`chronicle.list_lessons`) — before recording findings or proposing
+follow-ups: a finding that contradicts an active lesson without addressing
+it is an error, and a follow-up proposal that re-treads a lesson must cite
+the lesson id and say what is different this time. Record fresh lessons
+this cycle surfaced (`chronicle.experiments.record_lesson`; dedup by
+listing first — see `chronicle-research-lessons`).
+
 ## Record the finding
 
 For each variation whose outcome you've judged — from the `variation_completed`

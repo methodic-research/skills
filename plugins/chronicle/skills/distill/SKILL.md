@@ -170,6 +170,20 @@ print(f"Registered {asset_type} {asset_id} (pending review) on experiment {exper
 If `write_research_report` is set (experiment scope), repeat step 3 with
 `asset_type="research_report"` and a longer-form body.
 
+## Research lessons (check before you conclude)
+
+Before drafting, list the experiment's **active research lessons** —
+`chronicle.experiments.list_lessons(experiment_id)` (own + inherited; MCP:
+`chronicle.list_lessons`) — and check every claim against them:
+
+- Contradicting an active lesson **without explicitly addressing it** is a
+  factual blocker in review. You may overturn one — name it, argue the
+  evidence, then retire/supersede it (`chronicle-research-lessons` skill)
+  so the record moves with the conclusion.
+- A wrong assumption this work surfaced (repeated error, researcher
+  correction) is a lesson — record it the moment you catch it
+  (`chronicle.experiments.record_lesson`; dedup by listing first).
+
 ## Record the findings
 
 The report body is the detailed record; a **finding** is the one-line
