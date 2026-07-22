@@ -14,7 +14,9 @@ description: |
   never commits. Do not invoke for a from-scratch hypothesis (that's
   `chronicle-propose-experiment`), for adding code to an experiment that
   already exists (`chronicle-bundle-variation` / `chronicle-prep-variation`),
-  or for an arxiv paper you don't have locally (`chronicle-reproduce-arxiv`).
+  for an arxiv paper you don't have locally (`chronicle-reproduce-arxiv`), or
+  when the user wants their GitHub repo CONNECTED and kept in sync rather
+  than copied in (`chronicle-bind-repo` — import never binds).
 ---
 
 # Import a repository
@@ -57,6 +59,13 @@ web UI to mint an API key — agents cannot bootstrap credentials.
   minimal one and flag it as a placeholder in step 2.
 - **code attach mode** — managed-repo **push** (default) or **bundle**
   (frozen zip). See step 4 for when to fall back.
+
+> **Copy-in, never bind.** Both modes take a snapshot; neither connects the
+> user's repository. If they explicitly want their GitHub repo to *stay*
+> linked — their pushes syncing in, agent work landing back as `chronicle/*`
+> branches — that is `chronicle-bind-repo` (bind-at-create), a different,
+> deliberate verb. Mention it when they use "sync"/"connect" language, but
+> never silently switch an import into a bind.
 
 ## Workflow
 
