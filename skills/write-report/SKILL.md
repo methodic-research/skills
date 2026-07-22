@@ -78,9 +78,15 @@ The agent drafts the body with these sections (Markdown headings):
    with one line on why it matters). Optional.
 5. **Figures** — loss curves, comparisons, ablation plots, embedded as
    `![alt](asset:<id>)` (step 1 of the workflow uploads them and returns the
-   ids). An interactive HTML diagram (a Plotly export, a self-contained d3
-   page) uploads as an `html` asset and embeds with the same reference —
-   the UI renders it in a sandboxed frame.
+   ids). **Author each vector plot in three formats so it carries into papers
+   and posters, not just the web read** — save the same figure as `.svg`,
+   `.png`, and `.pdf` under one filename stem; the skill groups them into a
+   single image asset and each surface takes the format it can render (browser
+   → SVG, Overleaf/LaTeX → PDF, Slack → PNG). A genuinely *raster* figure (an
+   `imshow` field/heatmap, a photo) is `.png` only — SVG/PDF would just wrap a
+   bitmap. An interactive HTML diagram (a Plotly export, a self-contained d3
+   page) uploads as an `html` asset and embeds with the same reference — the UI
+   renders it in a sandboxed frame.
 
 **And the sources must be cited on the experiment, not just named in
 prose** — see "Register + attach citations" below. A paper mentioned in
@@ -159,9 +165,11 @@ provisioned one. Cite the real `summary` values in "What worked", and use
   summary. Both render the same way; `takeaways_report` is the type the
   conclude gate recognizes.
 - **`title`** — short human title for the document.
-- **`figures`** (optional) — local figure file paths to upload and embed
-  (`.png`, `.jpg`/`.jpeg`, `.svg`, `.webp` — or `.html` for a
-  self-contained interactive diagram).
+- **`figures`** (optional) — local figure file paths to upload and embed.
+  For a **vector** plot, pass all three format variants sharing one filename
+  stem (`loss_curve.svg`, `loss_curve.png`, `loss_curve.pdf`) — they group into
+  one image asset. A **raster** figure is `.png` only. (`.jpg`/`.jpeg`, `.webp`
+  also embed; `.html` for a self-contained interactive diagram.)
 - **`outcome`** (variation-scoped only) — `success` or `failure_rca`,
   recorded on the asset so failure write-ups are findable as such.
 
@@ -179,33 +187,77 @@ if variation is not None:
 
 # 1. Upload figures as `image` assets (`html` for an interactive diagram)
 #    and collect their ids for embedding.
+#
+#    Author each VECTOR plot in THREE formats sharing one filename stem, so the
+#    figure carries into papers and posters — not just the in-app read:
+#        fig.savefig("loss_curve.svg")           # browser render (vector)
+#        fig.savefig("loss_curve.png", dpi=200)  # Slack (raster; Slack won't show SVG)
+#        fig.savefig("loss_curve.pdf")           # Overleaf/LaTeX \includegraphics (vector)
+#    then pass all three paths. Variants sharing a stem GROUP into one image
+#    asset with svg/png/pdf components, and the server hands each surface the
+#    format it can render (browser→SVG, Overleaf→PDF, Slack→PNG). A genuinely
+#    RASTER figure (an `imshow` field/heatmap, a photo) is `.png` only — SVG/PDF
+#    would just wrap a bitmap. The agent authors every format; the server never
+#    parses the SVG (it is only ever a sandboxed browser `<img>` source).
+#
 #    Binaries go through the presigned-upload path: register → PUT → finalize.
-#    With name == the lone component the SDK uploads in the single-file
-#    shape (bytes at the canonical assets/<id>/<file>, methodic#521); the
-#    URL lookup below works under either shape, old SDKs included.
-def _figure_content_type(p: Path) -> str:
-    return {
-        ".png": "image/png",
-        ".jpg": "image/jpeg",
-        ".jpeg": "image/jpeg",
-        ".svg": "image/svg+xml",
-        ".webp": "image/webp",
-        ".html": "text/html",  # interactive diagram → sandboxed frame in the UI
-    }[p.suffix.lower()]  # KeyError → unsupported type; only embeddable figures upload
+from collections import defaultdict
 
-figure_ids = {}  # local filename -> asset_id
+_IMAGE_CTYPE = {
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".svg": "image/svg+xml",
+    ".webp": "image/webp",
+    ".pdf": "application/pdf",  # vector variant for LaTeX; never rendered inline
+}
+
+def _content_type(p: Path) -> str:
+    if p.suffix.lower() == ".html":
+        return "text/html"  # interactive diagram → sandboxed frame in the UI
+    return _IMAGE_CTYPE[p.suffix.lower()]  # KeyError → unsupported; only embeddable figures upload
+
+# Group image figures by filename stem: the format variants of one figure
+# (loss_curve.{svg,png,pdf}) become a single multi-component image asset; a
+# lone `.png` is just a one-component asset. HTML diagrams are their own assets.
+groups: dict[str, list[Path]] = defaultdict(list)
+html_figs: list[Path] = []
 for fig in (figures or []):
     p = Path(fig)
-    ctype = _figure_content_type(p)
+    (html_figs if p.suffix.lower() == ".html" else groups[p.stem]).append(p)
+
+# Upload the vector SVG first so the asset-level content_type is
+# `image/svg+xml` (a sane fallback; keeps Slack's `image/*` gate happy). The
+# per-surface component pick happens server-side.
+_ORDER = [".svg", ".png", ".pdf", ".webp", ".jpg", ".jpeg"]
+
+figure_ids = {}  # embed key (stem, or html filename) -> asset_id
+for stem, variants in groups.items():
+    variants.sort(key=lambda p: _ORDER.index(p.suffix.lower()) if p.suffix.lower() in _ORDER else 99)
+    components = [p.name for p in variants]
     info = chronicle.assets.create_with_presigned(
-        asset_type="html" if ctype == "text/html" else "image",
+        asset_type="image",
+        name=stem,  # the component dir; keep it != any lone filename
+        components=components,
+        content_type=_content_type(variants[0]),
+        output_of=output_of,
+    )
+    for p in variants:
+        url = info.upload_urls.get(p.name) or info.upload_urls["default"]
+        chronicle.assets.upload_component(url, p, _content_type(p))
+    chronicle.assets.finalize(info.asset_id)
+    figure_ids[stem] = info.asset_id  # embed as ![](asset:<id>)
+
+for p in html_figs:  # interactive diagrams → sandboxed frame
+    info = chronicle.assets.create_with_presigned(
+        asset_type="html",
         name=p.name,
         components=[p.name],
-        content_type=ctype,
+        content_type="text/html",
         output_of=output_of,
     )
     chronicle.assets.upload_component(
-        info.upload_urls.get(p.name) or info.upload_urls["default"], p, ctype
+        info.upload_urls.get(p.name) or info.upload_urls["default"], p, "text/html"
     )
     chronicle.assets.finalize(info.asset_id)
     figure_ids[p.name] = info.asset_id
@@ -213,7 +265,7 @@ for fig in (figures or []):
 # 2. *** AGENT DRAFTS THE WRITE-UP *** — the central step.
 #    Markdown + $…$ math, with the required sections (Summary, What worked,
 #    What didn't work, Open questions, Figures). Embed figures by id, e.g.:
-#       ![loss curve](asset:{figure_ids["loss_curve.png"]})
+#       ![loss curve](asset:{figure_ids["loss_curve"]})   # keyed by stem
 #    Write the negative-results section in good faith — it is the point.
 markdown_summary = "...the agent writes the Markdown + math document here..."
 
@@ -317,8 +369,8 @@ without exposing the whole experiment — use **`chronicle-share`**.
 
 - **`create_with_presigned` / `create_inline` 403** — the caller lacks
   `Write` on the experiment. Surface the message verbatim.
-- **Unsupported figure type** (`_figure_content_type` KeyError) — only
-  png/jpeg/svg/webp (and html for interactive diagrams) embed. Convert the
+- **Unsupported figure type** (`_content_type` KeyError) — only
+  png/jpeg/svg/webp/pdf (and html for interactive diagrams) embed. Convert the
   figure or drop it; don't upload an arbitrary binary as an `image`.
 - **Empty "What didn't work"** — do not silently omit the section. State
   there were no negative results, so the absence is a recorded choice, not a
