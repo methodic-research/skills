@@ -103,16 +103,26 @@ columns and re-projects the dataset to search. Requires `Write` on the asset.
 You can also pass `metadata=` directly to `upload` (Chronicle-hosted bytes) so
 a freshly-uploaded dataset is searchable immediately.
 
-## Sizing — single PUT per component, no multipart
+## Sizing — one component per file
 
-Each component is a **single presigned PUT** — there is no multipart upload.
+`upload` sends each component on the route Chronicle picks for the dataset's
+scope:
+
+- **GCS** (the default) — one presigned PUT per component. The write URL is a
+  *resumable* session, so a large single object works; the S3 fallback caps a
+  single PUT.
+- **R2** (where Chronicle has it enabled; `methodic` ≥ 0.48) — each component
+  goes through Scribe, and a file over the route's part limit (95 MiB by
+  default) is split into a multipart upload automatically. Nothing to do on
+  your side: `upload` / `chronicle.assets.upload_component` handle both routes.
+
+Either way:
 
 - **MB-scale** (a reference field, a small `.npz`) → one file, one component.
 - **GB-scale** → pass a **directory**: `upload` makes one component per file,
-  which is the sharding mechanism. On GCS the presigned write URL is a
-  *resumable* session, so a large single object also works; the S3 fallback
-  caps a single PUT, so prefer file-level sharding for portability. Split a
-  huge monolithic array into per-shard files before uploading.
+  which is the sharding mechanism (and what lets readers fetch shards
+  independently). Split a huge monolithic array into per-shard files before
+  uploading.
 
 ## Inputs
 
@@ -198,7 +208,7 @@ from methodic import Chronicle
 
 chronicle = Chronicle.from_env()
 
-dest = chronicle.datasets.load(asset_id, "./data")   # downloads every component
+dest = chronicle.datasets.load(asset_id, "./data")   # downloads every component (R2 copy first, if any)
 prov = chronicle.datasets.provenance(asset_id)        # the recorded provenance, or None
 print(f"loaded into {dest}; provenance: {prov}")
 ```
