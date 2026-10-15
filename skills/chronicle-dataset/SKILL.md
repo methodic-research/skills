@@ -111,7 +111,7 @@ scope:
 - **GCS** (the default) — one presigned PUT per component. The write URL is a
   *resumable* session, so a large single object works; the S3 fallback caps a
   single PUT.
-- **R2** (where Chronicle has it enabled; `methodic` ≥ 0.48) — each component
+- **R2** (where Chronicle has it enabled; `methodic` ≥ 0.49) — each component
   goes through Scribe, and a file over the route's part limit (95 MiB by
   default) is split into a multipart upload automatically. Nothing to do on
   your side: `upload` / `chronicle.assets.upload_component` handle both routes.
