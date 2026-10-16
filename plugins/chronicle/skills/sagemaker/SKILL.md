@@ -8,7 +8,7 @@ description: |
   Python deps in requirements.txt so SageMaker installs them, pointing checkpoints
   at /opt/ml/checkpoints so SageMaker's continuous S3 sync gives you free
   same-cloud + spot-interruption resume (Layer 1) while still pushing the
-  canonical checkpoint to GCS for cross-cloud resume (Layer 2), and reading the
+  canonical checkpoint to Chronicle for cross-cloud resume (Layer 2), and reading the
   CHRONICLE_* env the launcher injects so the run reports lifecycle + streams
   metrics. It is the SageMaker packaging companion to chronicle-checkpoint-resume
   (the framework-agnostic durable-state skill) and chronicle-run-variation (which
@@ -64,9 +64,11 @@ transformers
 `CheckpointManager` with `local_checkpoint_dir="/opt/ml/checkpoints"` gives you
 **both** durability layers from a single call: the directory is what SageMaker
 continuously syncs to S3 (**Layer 1** — same-cloud, free, restored automatically
-on a spot interruption), and the manager *also* uploads the checkpoint to GCS via
-presigned URLs (**Layer 2** — canonical, lets the run resume on a different cloud
-or account). No new library code — `CheckpointManager` already does both.
+on a spot interruption), and the manager *also* uploads the checkpoint to
+Chronicle, which keeps it in Cloudflare R2 (**Layer 2** — canonical, lets the run
+resume on a different cloud or account). No new library code — `CheckpointManager`
+already does both. The Layer-2 copy expires 180 days after upload unless it's
+preserved — see `chronicle-checkpoint-resume` (Retention).
 
 ```python
 # train.py — entrypoint SageMaker runs
