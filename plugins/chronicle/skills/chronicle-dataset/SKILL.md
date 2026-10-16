@@ -108,13 +108,24 @@ a freshly-uploaded dataset is searchable immediately.
 `upload` sends each component on the route Chronicle picks for the dataset's
 scope:
 
-- **GCS** (the default) — one presigned PUT per component. The write URL is a
-  *resumable* session, so a large single object works; the S3 fallback caps a
-  single PUT.
-- **R2** (where Chronicle has it enabled; `methodic` ≥ 0.49) — each component
-  goes through Scribe, and a file over the route's part limit (95 MiB by
-  default) is split into a multipart upload automatically. Nothing to do on
-  your side: `upload` / `chronicle.assets.upload_component` handle both routes.
+- **R2** (Cloudflare; the default for datasets wherever the server has R2 on,
+  `methodic` ≥ 0.49) — each component goes through Scribe, and a file over the
+  route's part limit (95 MiB by default) is split into a multipart upload
+  automatically. A dataset then lives in R2 alone, so **pulling it costs no
+  egress** from anywhere. An owner who sets `assets.r2` off keeps GCS.
+- **GCS** (servers without R2) — one presigned PUT per component. The write
+  URL is a *resumable* session, so a large single object works; the S3
+  fallback caps a single PUT.
+
+Nothing to do on your side: `upload` / `chronicle.assets.upload_component`
+handle both routes.
+
+**Datasets already in GCS move to R2 on their own** — Chronicle migrates them a
+few at a time, deleting the GCS copy once R2 has the bytes (reads keep working
+throughout). To move one now: `chronicle.assets.move_to_r2(asset_id)`
+(`methodic` ≥ 0.54, Write on the dataset), then `chronicle.assets.r2_status(asset_id)`
+until `state` is `ready`; or **Move to Cloudflare** under Storage on the
+dataset's page. Datasets registered by reference stay where they are.
 
 Either way:
 
@@ -208,7 +219,7 @@ from methodic import Chronicle
 
 chronicle = Chronicle.from_env()
 
-dest = chronicle.datasets.load(asset_id, "./data")   # downloads every component (R2 copy first, if any)
+dest = chronicle.datasets.load(asset_id, "./data")   # downloads every component (from R2 when it's there)
 prov = chronicle.datasets.provenance(asset_id)        # the recorded provenance, or None
 print(f"loaded into {dest}; provenance: {prov}")
 ```
@@ -281,9 +292,11 @@ To share this dataset with a specific person or team, or set its visibility
 
 An agent driving Chronicle through the MCP server (not the Python SDK) has
 `chronicle.upload_asset` for the **single-file / small-inline** upload case
-(inline base64 ≤2 MiB, or a presigned `upload_url` for a single large object)
-and `chronicle.load_asset(asset_id)` to mint presigned **read** URLs +
-provenance for an existing dataset's components. Multi-file / sharded datasets
+(inline base64 ≤2 MiB, or a presigned `upload_url` for a single object up to
+5 GiB — straight to R2 where the server has it) and `chronicle.load_asset(asset_id)`
+to mint presigned **read** URLs + provenance for an existing dataset's
+components. Read URLs point straight at the R2 bucket once the dataset is in R2
+(no credentials needed to fetch them, like a GCS signed URL). Multi-file / sharded datasets
 are this skill's job — the SDK splits a directory into components, which the
 one-shot MCP tools deliberately don't.
 
