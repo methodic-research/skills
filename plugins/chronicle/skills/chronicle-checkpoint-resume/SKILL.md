@@ -4,10 +4,11 @@ description: |
   Use this skill when an agent/runner with its OWN training code needs to make a
   Chronicle run durable and reproducible — phrases like "snapshot the
   environment", "upload checkpoints as it trains", "resume training from the last
-  checkpoint", "continue the crashed run". It owns three things: capturing an
-  environment snapshot at run start (library/hardware versions + your custom
-  config state), uploading resumable checkpoints during training, and
-  discovering + downloading the latest checkpoint to resume from. It is
+  checkpoint", "continue the crashed run", "preserve this checkpoint". It owns
+  three things: capturing an environment snapshot at run start (library/hardware
+  versions + your custom config state), uploading resumable checkpoints during
+  training, and discovering + downloading the latest checkpoint to resume from —
+  plus checkpoint retention (they expire after 180 days unless preserved). It is
   training-AGNOSTIC — the training loop is the caller's; this skill never writes
   it. It is the durable-state companion to chronicle-run-variation (which owns
   the run lifecycle + W&B linking): run-variation marks the run, this skill makes
@@ -84,6 +85,7 @@ else:
 # 3. CHECKPOINT DURING TRAINING — write a dir, hand it to the SDK. It presigns,
 #    uploads each file straight to cloud storage, and finalizes on a background
 #    thread, tracking upload state in local SQLite for crash recovery.
+#    Checkpoints expire 180 days after upload unless preserved — see Retention.
 tracker = UploadTracker(db_path=Path("./uploads.sqlite"))
 
 def checkpoint(step: int) -> None:
@@ -124,6 +126,10 @@ SDK is installed:
   — returns outputs newest-first; take the first whose `asset_type` is
   `"checkpoint"` and `state` is `"ready"`.
 
+Both filter on `ready` (`latest_output` does by default), so an **expired**
+checkpoint (`state: "expired"`, bytes deleted — see Retention) is skipped and
+discovery lands on the newest checkpoint that still has its bytes.
+
 ### Resuming from an input-linked checkpoint
 
 If a researcher explicitly linked a checkpoint as a **variation input** (e.g. to
@@ -131,32 +137,93 @@ branch training from another variation), read it from the inputs instead:
 `chronicle.variation(experiment_id, variation).list_inputs()` → the
 `asset_type == "checkpoint"` entry → `run.download_asset(id, resume_dir)`.
 
+## Retention: checkpoints expire, so preserve the ones you'll need
+
+Every `checkpoint` asset expires **180 days after upload** (`expires_at` on the
+asset); `snapshot`s, datasets, and reports never expire. The SDK uploads
+checkpoints to Cloudflare R2 for every account, and that is their only copy.
+
+- **Expired** — Chronicle deletes the bytes; the asset stays, with
+  `state: "expired"`, `expired_at`, and its content hash (`sha256` — the SDK
+  hashes each file as it uploads). Downloading or presigning it is a 410
+  `asset_expired` (`methodic.AssetExpiredError`); linking it as an input is a 409.
+- **Preserve** the checkpoints worth keeping — the one you resume from, a
+  fine-tuning base, the final/best one — not every checkpoint.
+  `chronicle.assets.preserve(asset_id)` (MCP `chronicle.preserve_asset`; REST
+  `PUT /v1/assets/{id}/preserve`) clears the expiry for good and moves the bytes
+  to permanent storage in the background (`job_id` in the response). Needs
+  `Write` on the asset; idempotent; an already-expired checkpoint can't be
+  preserved (410).
+- **Shorter TTL** for throwaway intermediates — `ttl_days` (1–180; the default
+  and max is `methodic.CHECKPOINT_TTL_DAYS`, 180) at upload:
+
+  ```python
+  run.upload_directory_async(out, asset_type="checkpoint", upload_tracker=tracker,
+                             ttl_days=14)   # gone in 14 days unless preserved
+  ```
+
+  `run.upload_file`, `run.create_asset_presigned`, `run.register_and_upload_async`,
+  and `chronicle.assets.create_with_presigned` take it too, as do MCP
+  `chronicle.upload_asset` and REST `POST /v1/assets`. On the managed Menlo Park
+  runner, set `checkpoint_ttl_days: 30` at the top level of the experiment YAML
+  (checked at startup; applies to every checkpoint the run saves, not the final
+  snapshot). A non-checkpoint is refused with 400 `ttl_not_supported`, a value
+  outside 1–180 with 400 `invalid_ttl`.
+- **Notices** — the activity feed warns 14 and 3 days before checkpoints expire:
+  one `checkpoint.expiring` event (severity `warning`) per experiment, listing
+  the checkpoints due within a day of each other; the web app shows it in yellow
+  with a Preserve button per checkpoint. Agents read them with `chronicle.feed`
+  `{ "kind": "checkpoint.expiring" }` (SDK
+  `chronicle.feed.list(kind="checkpoint.expiring")`). A checkpoint whose whole
+  TTL is shorter than a notice's lead time skips that notice (`ttl_days=7` gets
+  only the 3-day warning).
+- **Read URLs** for these R2-only checkpoints (`presign`,
+  `get(include_presigned=True)`, MCP `chronicle.load_asset`) are Scribe links
+  with a short-lived token — any HTTP client can fetch them for about an hour,
+  like a GCS signed URL.
+
+SDK minimums: `methodic` ≥ 0.50 (upload hashes), ≥ 0.51 (`AssetExpiredError`),
+≥ 0.52 (`assets.preserve`), ≥ 0.53 (`ttl_days`, `CHECKPOINT_TTL_DAYS`).
+
 ## After the skill completes
 
 Tell the user:
 1. Whether the run **resumed** (from which checkpoint id + timestamp) or started fresh.
 2. How many checkpoints were uploaded, and the final `snapshot` asset id if one was saved.
-3. The next step: `chronicle-write-report` to distill the run.
+3. Which checkpoints are worth **preserving** — the one this run resumed from (or
+   the next run will), a fine-tuning base, the final/best one — with their ids and
+   expiry (180 days, or the `ttl_days` you set). Offer to preserve them
+   (`chronicle.assets.preserve` / `chronicle.preserve_asset`); don't preserve
+   every checkpoint.
+4. The next step: `chronicle-write-report` to distill the run.
 
 ## Failure modes
 
 - **`latest_output` returns None when you expected a checkpoint** — you likely
   scoped to the run instead of the variation, or the prior checkpoint never
-  reached `ready` (upload not finalized). List with `across_runs=True` and check
-  `state`.
+  reached `ready` (upload not finalized) or has since `expired`. List with
+  `across_runs=True` and check `state`.
 - **Upload still in flight at exit** — `run.succeed()` blocks on pending uploads;
   call it (don't `sys.exit` first). On crash, a restarted process resumes
   incomplete uploads from the `UploadTracker` db (re-PUT + finalize are
   idempotent).
 - **Resume dir partially downloaded** — `download_asset` streams every component;
   re-run it (idempotent) if interrupted.
+- **`AssetExpiredError` (410 `asset_expired`) on `download_asset`** — that
+  checkpoint passed its expiry: the bytes are gone (the row keeps `sha256`) and it
+  can no longer be preserved. `latest_output` already skips expired checkpoints,
+  so this usually means an explicit id or an input-linked checkpoint. Pick another
+  `ready` one (`run.list_outputs(across_runs=True)`, check `state`) or train from
+  scratch — and preserve the checkpoints you intend to resume from before they
+  expire.
 - **`checkpoint` vs `snapshot`** — resume reads `checkpoint`; don't mark the final
   model `checkpoint` or a resume will load a non-resumable snapshot.
 
 ## Requires
 
-- `pip install methodic-research` (≥ the `runs.latest_output` release) — or the
-  bundled MCP server for `chronicle.list_outputs` discovery without the SDK.
+- `pip install methodic-research` (≥ the `runs.latest_output` release; `methodic`
+  ≥ 0.53 for everything under Retention) — or the bundled MCP server for
+  `chronicle.list_outputs` discovery without the SDK.
 - `CHRONICLE_API_KEY` exported (or `methodic auth login` already done).
 - The training, the `save_state`/`load_state` functions, and the compute are
   yours — this skill records durable state via the API; it never trains.
