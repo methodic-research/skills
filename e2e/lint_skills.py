@@ -54,6 +54,7 @@ FORBIDDEN: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"report_writes:write"), "capability pseudo-actions were removed; use a type-qualified write"),
     (re.compile(r"\bdefault org\b"), "per-key 'default org' was abandoned; name the org on the call (the recorded config.yaml organization_id is the one sanctioned default)"),
     (re.compile(r"default_scope"), "per-key default_scope was abandoned"),
+    (re.compile(r"\b(methodic|user)_reviewed\b"), "the review booleans became reviewer classes; filter with reviewed_by= / awaiting= over user | agent | methodic_agent | methodic_human"),
 ]
 
 # Scan only the SKILL.md files for stale surface — these are what an agent

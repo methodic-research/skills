@@ -49,11 +49,12 @@ doing:
 
 | Pull | Job |
 |---|---|
-| `methodic_reviewed: false` on the global queue | Recommending what Methodic should admit to the global catalog corpus. High bar. |
+| `awaiting: "methodic_human"` on the global queue | Recommending what Methodic should admit to the global catalog corpus. High bar. |
 | an experiment's own queue | Recommending what its owner should confirm locally. Lower bar — it only has to be true *here*. |
 
 Never describe an owner-tier confirm as "validated". It is not, and the
-distinction is the entire reason the two flags exist.
+distinction is the entire reason reviews carry a reviewer class: only a
+confirmed `methodic_human` review admits a report to the global corpus.
 
 ## Workflow
 
@@ -63,11 +64,12 @@ distinction is the entire reason the two flags exist.
 from methodic import Chronicle
 chronicle = Chronicle.from_env()
 
-# Everything a Methodic reviewer has not yet cleared. Drop `methodic_reviewed`
-# for the whole queue, or pass experiment_id for one experiment's.
+# Everything a Methodic reviewer has not yet cleared. Drop `awaiting` for
+# the whole queue; for one experiment's, use
+# chronicle.review_queue.list(experiment_id=...).
 reports = chronicle.reasoning_errors.list(
     state="ai_validated",          # or omit for everything pending
-    methodic_reviewed=False,
+    awaiting="methodic_human",
 )
 ```
 

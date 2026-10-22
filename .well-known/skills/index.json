@@ -260,6 +260,20 @@
       ]
     },
     {
+      "name": "review-agent-errors",
+      "description": "Use this skill when someone wants to work through the agent-error review queue — phrases like \"pull the review queue\", \"review the reported errors\", \"what's waiting for review\", \"give me a recommendation on these reports\". Pulls reasoning and operational error reports awaiting review, gathers the evidence behind each one, and writes a structured RECOMMENDATION (confirm / reject, with the catalog entry it matches). It never finalizes: a human applies the recommendations in Bridge. Use report-agent-error to FILE a report; this skill judges ones already filed. For proposed catalog entries rather than reports, use review-catalog-proposals.",
+      "files": [
+        "SKILL.md"
+      ]
+    },
+    {
+      "name": "review-catalog-proposals",
+      "description": "Use this skill when someone wants to work through proposed catalog entries — phrases like \"review the proposed failure modes\", \"what's waiting for promotion\", \"should we promote this check\". Pulls failure-mode and operational-check entries at status `proposed`, checks each against the reports behind it and the entries already active, and writes a structured RECOMMENDATION (promote / retire / redraft, with sharpened wording). It never promotes: only a human moves an entry to active. For error reports rather than catalog entries, use review-agent-errors.",
+      "files": [
+        "SKILL.md"
+      ]
+    },
+    {
       "name": "sagemaker",
       "description": "Use this skill when you need to make a training project run correctly as a Chronicle-launched Amazon SageMaker training job — phrases like \"prepare this variation for SageMaker\", \"run this on SageMaker\", \"train on spot\", \"make it resumable on SageMaker\". It owns three SageMaker-specific things: declaring Python deps in requirements.txt so SageMaker installs them, pointing checkpoints at /opt/ml/checkpoints so SageMaker's continuous S3 sync gives you free same-cloud + spot-interruption resume (Layer 1) while still pushing the canonical checkpoint to Chronicle for cross-cloud resume (Layer 2), and reading the CHRONICLE_* env the launcher injects so the run reports lifecycle + streams metrics. It is the SageMaker packaging companion to chronicle-checkpoint-resume (the framework-agnostic durable-state skill) and chronicle-run-variation (which owns the run lifecycle + launch). For humans and internal variation agents.",
       "files": [

@@ -45,6 +45,8 @@
 /.well-known/skills/methodic-feedback/SKILL.md               https://raw.githubusercontent.com/methodic-research/skills/main/skills/feedback/SKILL.md  302
 /.well-known/skills/paper-authoring/SKILL.md                 https://raw.githubusercontent.com/methodic-research/skills/main/research-plugin/skills/paper-authoring/SKILL.md  302
 /.well-known/skills/report-agent-error/SKILL.md              https://raw.githubusercontent.com/methodic-research/skills/main/skills/report-agent-error/SKILL.md  302
+/.well-known/skills/review-agent-errors/SKILL.md             https://raw.githubusercontent.com/methodic-research/skills/main/skills/review-agent-errors/SKILL.md  302
+/.well-known/skills/review-catalog-proposals/SKILL.md        https://raw.githubusercontent.com/methodic-research/skills/main/skills/review-catalog-proposals/SKILL.md  302
 /.well-known/skills/sagemaker/SKILL.md                       https://raw.githubusercontent.com/methodic-research/skills/main/skills/sagemaker/SKILL.md  302
 /.well-known/skills/synthesis/SKILL.md                       https://raw.githubusercontent.com/methodic-research/skills/main/research-plugin/skills/synthesis/SKILL.md  302
 /.well-known/skills/triage-error-queue/SKILL.md              https://raw.githubusercontent.com/methodic-research/skills/main/skills/triage-error-queue/SKILL.md  302

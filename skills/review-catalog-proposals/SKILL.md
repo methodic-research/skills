@@ -49,7 +49,7 @@ confirmed is **not** supported evidence, however many there are
 
 ```python
 supporting = chronicle.reasoning_errors.list(
-    methodic_reviewed=True,        # the only reports that count globally
+    reviewed_by="methodic_human",  # the only reports that count globally
 )
 ```
 
